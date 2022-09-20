@@ -2,78 +2,40 @@ AWSTemplateFormatVersion: 2010-09-09
 
 Transform: AWS::Serverless-2016-10-31
 
-Description: "Create a AWS CodePipeline to train a Machine Learning Model."
+Description: "Create a AWS CodePipeline to train a Machine Learning Model for SageMaker Pipelines."
 
 Parameters:
 
   RoleName:
     Type: String
     Description: "Name of the Pipeline execution Role."
-    Default: MLOps
+    Default: MLOps-SageMakerPipelines
 
   ModelName:
     Type: String
     Description: "Name of the model"
     Default: abalone
-
+  
   ImageTagName:
     Type: String
-    Description: "Name of the model"
+    Description: "Image Version"
     Default: latest
 
   PipelineName:
     Type: String
-    Description: "Name of pipeline"
-    Default: mlops-devtools
-
+    Description: "Name of pipeline in CodePipeline"
+    Default: mlops-sagemaker-pipelines
+    
 Resources:
 
-  ModelGroupLayer:
-    Type: AWS::Serverless::LayerVersion
-    Properties:
-      CompatibleRuntimes:
-        - python3.7
-        - python3.8
-      ContentUri: dependencies/
-      Description: Lambda dependencies for Model Group
-      LayerName: model-group-layer
-      LicenseInfo: 'MIT'
-      RetentionPolicy: Retain
-    Metadata:
-      BuildMethod: makefile
-  
-  CreateModelGroup:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub ${PipelineName}-create-model-group-${ModelName}
-      Description: "Function to create a SageMaker Model Package Group."
-      Handler: lambda.handler
-      MemorySize: 128
-      Role: !GetAtt MLOpsRole.Arn
-      Runtime: python3.8
-      Timeout: 60
-      Environment:
-        Variables:
-          MODEL_NAME: !Ref ModelName
-      CodeUri: ModelGroup/
-      Layers:
-        - !Ref ModelGroupLayer
-      Tags:
-        Name: !Sub ${PipelineName}
-
-  PackageGroup:
-    Type: Custom::PackageGroup
-    Properties:
-      ServiceToken: !GetAtt CreateModelGroup.Arn
-    
-  TrainingJobEvaluate:
+  EtlSourceCopy:
     Type: AWS::Serverless::Function
     Properties: 
-      FunctionName: !Sub ${PipelineName}-training-job-evaluate-${ModelName}
-      Description: "Function to start a new Sagemaker Processing Job to evaluate model"
+      FunctionName: !Sub ${PipelineName}-etl-source-copy-${ModelName}
+      Description: "Function that will copy ETL Source Code"
       Handler: lambda.handler
       MemorySize: 128
-      Role: !GetAtt MLOpsRole.Arn
+      Role: !GetAtt MLOpsSMPipelineRole.Arn
       Runtime: python3.8
       Timeout: 60
       Environment:
@@ -81,174 +43,231 @@ Resources:
           PIPELINE_NAME: !Sub ${PipelineName}
           MODEL_NAME: !Ref ModelName
           PIPELINE_BUCKET: !ImportValue MLOpsBucket
-      CodeUri: TrainingJobEvaluate/
-      Tags:
-        Name: !Sub ${PipelineName}
-
-  TrainingLaunchJob:
-    Type: AWS::Serverless::Function
-    Properties: 
-      FunctionName: !Sub ${PipelineName}-training-launch-job-${ModelName}
-      Description: "Function to start a new Sagemaker Training Job."
-      Handler: lambda.handler
-      MemorySize: 128
-      Role: !GetAtt MLOpsRole.Arn
-      Runtime: python3.8
-      Timeout: 60
-      Environment:
-        Variables:
-          PIPELINE_NAME: !Sub ${PipelineName}
-          MODEL_NAME: !Ref ModelName
-          PIPELINE_BUCKET: !ImportValue MLOpsBucket
-      CodeUri: TrainingLaunchJob/
-      Tags:
-        Name: !Sub ${PipelineName}
-                                                                                                                                              
-  EtlLaunchJob:
-    Type: AWS::Serverless::Function
-    Properties: 
-      FunctionName: !Sub ${PipelineName}-etl-launch-job-${ModelName}
-      Description: "Function that will start a new Glue ETL Job."
-      Handler: lambda.handler
-      MemorySize: 128
-      Role: !GetAtt MLOpsRole.Arn
-      Runtime: python3.8
-      Timeout: 60
-      Environment:
-        Variables:
-          PIPELINE_NAME: !Sub ${PipelineName}
-          MODEL_NAME: !Ref ModelName
-          DATA_BUCKET: !ImportValue DataBucket
-          PIPELINE_BUCKET: !ImportValue MLOpsBucket
-          ROLE: !GetAtt MLOpsRole.Arn
-      CodeUri: EtlLaunchJob/
+          ROLE: !GetAtt MLOpsSMPipelineRole.Arn
+      CodeUri: EtlSourceCopy/
       Tags:
         Name: !Sub ${PipelineName}
   
-  TrainingJobMonitor:
+  EvalSourceCopy:
     Type: AWS::Serverless::Function
     Properties: 
-      FunctionName: !Sub ${PipelineName}-training-job-monitor-${ModelName}
-      Description: "Function that will monitor that status of the SageMaker Training Job."
+      FunctionName: !Sub ${PipelineName}-eval-source-copy-${ModelName}
+      Description: "Function that will copy Evaluation Source Code"
       Handler: lambda.handler
-      MemorySize: 512
-      Role: !GetAtt MLOpsRole.Arn
+      MemorySize: 128
+      Role: !GetAtt MLOpsSMPipelineRole.Arn
       Runtime: python3.8
       Timeout: 60
       Environment:
         Variables:
           PIPELINE_NAME: !Sub ${PipelineName}
           MODEL_NAME: !Ref ModelName
-      CodeUri: TrainingJobMonitor/
-      Tags:
-        Name: !Sub ${PipelineName}
-
-  TrainingModelApproval:
-    Type: AWS::Serverless::Function
-    Properties: 
-      FunctionName: !Sub ${PipelineName}-training-model-approval-${ModelName}
-      Description: "Function that will evaluate the trained bodel with baseline"
-      Handler: lambda.handler
-      MemorySize: 512
-      Role: !GetAtt MLOpsRole.Arn
-      Runtime: python3.8
-      Timeout: 60
-      Environment:
-        Variables:
-          PIPELINE_NAME: !Sub ${PipelineName}
-          MODEL_NAME: !Ref ModelName
-          MODEL_BASELINE_QUALITY_THRESHOLD: 3.1
-      CodeUri: TrainingModelApproval/
+          PIPELINE_BUCKET: !ImportValue MLOpsBucket
+          ROLE: !GetAtt MLOpsSMPipelineRole.Arn
+      CodeUri: EvalSourceCopy/
       Tags:
         Name: !Sub ${PipelineName}
         
-  EtlJobMonitor:
+  SubmitPipelineJob:
     Type: AWS::Serverless::Function
     Properties: 
-      FunctionName: !Sub ${PipelineName}-etl-job-monitor-${ModelName}
-      Description: "Function that will monitor that status of the Glue ETL Job."
+      FunctionName: !Sub ${PipelineName}-submit-sagemaker-pipeline-${ModelName}
+      Description: "Function that will submit a SageMaker Pipeline job from a JSON definition"
       Handler: lambda.handler
-      MemorySize: 512
-      Role: !GetAtt MLOpsRole.Arn
+      MemorySize: 128
+      Role: !GetAtt MLOpsSMPipelineRole.Arn
       Runtime: python3.8
       Timeout: 60
       Environment:
         Variables:
           PIPELINE_NAME: !Sub ${PipelineName}
           MODEL_NAME: !Ref ModelName
-      CodeUri: EtlJobMonitor/
+          PIPELINE_BUCKET: !ImportValue MLOpsBucket
+          ROLE: !GetAtt MLOpsSMPipelineRole.Arn
+      CodeUri: SubmitPipelineJob/
       Tags:
         Name: !Sub ${PipelineName}
   
-  TrainingJobMonitorPermissions:
-    Type: AWS::Lambda::Permission
+  PipelineMonitor:
+    Type: AWS::Serverless::Function
     Properties: 
-      Action: lambda:InvokeFunction
-      FunctionName: !Sub ${PipelineName}-training-job-monitor-${ModelName}
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt TrainingJobMonitoringEvent.Arn
-    DependsOn: TrainingJobMonitor
-
-  TrainingModelApprovalPermissions:
-    Type: AWS::Lambda::Permission
-    Properties: 
-      Action: lambda:InvokeFunction
-      FunctionName: !Sub ${PipelineName}-training-model-approval-${ModelName}
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt TrainingModelApprovalEvent.Arn
-    DependsOn: TrainingModelApproval
-    
-  EtlJobMonitorPermissions:
-    Type: AWS::Lambda::Permission
-    Properties: 
-      Action: lambda:InvokeFunction
-      FunctionName: !Sub ${PipelineName}-etl-job-monitor-${ModelName}
-      Principal: events.amazonaws.com
-      SourceArn: !GetAtt EtlJobMonitoringEvent.Arn
-    DependsOn: EtlJobMonitor
+      FunctionName: !Sub ${PipelineName}-pipeline-monitor-${ModelName}
+      Description: "Function that will monitor that status of the SageMaker Pipeline Job."
+      Handler: lambda.handler
+      MemorySize: 512
+      Role: !GetAtt MLOpsSMPipelineRole.Arn
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          PIPELINE_NAME: !Sub ${PipelineName}
+          MODEL_NAME: !Ref ModelName
+      CodeUri: PipelineMonitor/
+      Tags:
+        Name: !Sub ${PipelineName}
   
-  TrainingJobMonitoringEvent:
-    Type: AWS::Events::Rule
+  CreateEndpoint:
+    Type: AWS::Serverless::Function
     Properties: 
-      Description: "Event that will monitor the training job and inform codepipeline as it finishes."
-      Name: !Sub training-job-monitor-${ModelName}
-      ScheduleExpression: cron(0/1 * * * ? *)
-      State: DISABLED
-      Targets:
-        - Arn: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${PipelineName}-training-job-monitor-${ModelName}
-          Id: !Sub ${PipelineName}-training-event-${ModelName}
-    DependsOn: TrainingJobMonitor
-    
-  TrainingModelApprovalEvent:
-    Type: AWS::Events::Rule
-    Properties: 
-      Description: "Event that will monitor the processing job, evaluate and inform codepipeline as it finishes."
-      Name: !Sub training-model-approval-${ModelName}
-      ScheduleExpression: cron(0/1 * * * ? *)
-      State: DISABLED
-      Targets:
-        - Arn: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${PipelineName}-training-model-approval-${ModelName}
-          Id: !Sub ${PipelineName}-training-approval-event-${ModelName}
-    DependsOn: TrainingModelApproval
- 
-  EtlJobMonitoringEvent:
-    Type: AWS::Events::Rule
-    Properties: 
-      Description: "Event that will monitor the gluejob and inform codepipeline as it finishes."
-      Name: !Sub etl-job-monitor-${ModelName}
-      ScheduleExpression: cron(0/1 * * * ? *)
-      State: DISABLED
-      Targets:
-        - Arn: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${PipelineName}-etl-job-monitor-${ModelName}
-          Id: !Sub ${PipelineName}-etl-event-${ModelName}
-    DependsOn: EtlJobMonitor
+      FunctionName: !Sub ${PipelineName}-create-endpoint-${ModelName}
+      Description: "Function that create a SageMaker Endpoint."
+      Handler: lambda.handler
+      MemorySize: 512
+      Role: !GetAtt MLOpsSMPipelineRole.Arn
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          PIPELINE_NAME: !Sub ${PipelineName}
+          ROLE: !GetAtt MLOpsSMPipelineRole.Arn
+          ENDPOINT: !Sub ${PipelineName}-dev
+          MODEL_NAME: !Ref ModelName
+      CodeUri: CreateEndpoint/
+      Tags:
+        Name: !Sub ${PipelineName}
 
+  PipelineMonitoringEvent:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "Event that will monitor the sagemaker pipeline job and inform codepipeline as it finishes."
+      Name: !Sub pipeline-monitor-${ModelName}
+      ScheduleExpression: cron(0/1 * * * ? *)
+      State: DISABLED
+      Targets:
+        - Arn: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${PipelineName}-pipeline-monitor-${ModelName}
+          Id: !Sub pipeline-event-${ModelName}
+    DependsOn: PipelineMonitor
+
+  PipelineMonitorPermissions:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${PipelineName}-pipeline-monitor-${ModelName}
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt PipelineMonitoringEvent.Arn
+    DependsOn: PipelineMonitor
+
+  ConfirmEndpoint:
+    Type: AWS::Serverless::Function
+    Properties: 
+      FunctionName: !Sub ${PipelineName}-confirm-endpoint-${ModelName}
+      Description: "Function that monitors a SageMaker Endpoint creation."
+      Handler: lambda.handler
+      MemorySize: 512
+      Role: !GetAtt MLOpsSMPipelineRole.Arn
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          PIPELINE_NAME: !Sub ${PipelineName}
+          ROLE: !GetAtt MLOpsSMPipelineRole.Arn
+          ENDPOINT: !Sub ${PipelineName}-dev
+          MODEL_NAME: !Ref ModelName
+      CodeUri: ConfirmEndpoint/
+      Tags:
+        Name: !Sub ${PipelineName}
+
+  EndpointMonitoringEvent:
+    Type: AWS::Events::Rule
+    Properties: 
+      Description: "Event that will monitor the creation of a SageMaker Endpoint and inform codepipeline as it finishes."
+      Name: !Sub endpoint-monitor-${ModelName}
+      ScheduleExpression: cron(0/2 * * * ? *)
+      State: DISABLED
+      Targets:
+        - Arn: !Sub arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${PipelineName}-confirm-endpoint-${ModelName}
+          Id: !Sub endpoint-event-${ModelName}
+    DependsOn: ConfirmEndpoint
+
+  EndpointMonitorPermissions:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !Sub ${PipelineName}-confirm-endpoint-${ModelName}
+      Principal: events.amazonaws.com
+      SourceArn: !GetAtt EndpointMonitoringEvent.Arn
+    DependsOn: ConfirmEndpoint
+  
+  BuildLambdaImageProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name: !Sub ${PipelineName}-build-lambda-image-${ModelName}
+      Description: "Build a Lambda Container to test dev endpoint"
+      ServiceRole: !GetAtt MLOpsSMPipelineRole.Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: |
+          Version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                python: 3.8
+            pre_build:
+              commands:
+                - printenv
+                - echo Updating Packages ...
+                - pip install --upgrade --force-reinstall botocore boto3 awscli sagemaker aws-sam-cli
+                - |
+                  sh -c """
+                    sam build --build-dir deploy/ \
+                              --use-container \
+                              --manifest requirements.txt \
+                              --template-file ./assets/testSageMakerPipelineEndpoint/sam.yaml \
+                              --base-dir assets/
+                    """
+            build:
+              Commands:
+                - echo Build started on `date`
+                - |
+                  sh -c """
+                  sam deploy  --stack-name ${STACK_NAME} \
+                              --template-file deploy/template.yaml \
+                              --capabilities CAPABILITY_NAMED_IAM \
+                              --image-repository ${CONTAINER_REGISTRY_URI} \
+                              --s3-bucket ${PIPELINE_BUCKET} \
+                              --s3-prefix ${PIPELINE_NAME}/artifacts \
+                              --no-fail-on-empty-changeset \
+                              --no-confirm-changeset
+                  """
+            post_build:
+              commands:
+                - echo Build completed on `date`
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:4.0
+        PrivilegedMode: True
+        EnvironmentVariables:
+          - Name: IMAGE_REPO_NAME
+            Value: !ImportValue AbaloneLambdaRegistryName
+          - Name: IMAGE_TAG
+            Value: !Ref ImageTagName
+          - Name: AWS_ACCOUNT_ID
+            Value: !Sub ${AWS::AccountId}
+          - Name: AWS_DEFAULT_REGION
+            Value: !Sub ${AWS::Region}
+          - Name: MODEL_NAME
+            Value: !Ref ModelName
+          - Name: PIPELINE_BUCKET
+            Value: !ImportValue MLOpsBucket
+          - Name: STACK_NAME
+            Value: !Sub ${PipelineName}-test-endpoint
+          - Name: PIPELINE_NAME
+            Value: !Sub ${PipelineName}
+          - Name: CONTAINER_REGISTRY_URI
+            Value: !ImportValue AbaloneLambdaRegistryURI
+      Tags:
+        - Key: Name
+          Value: !Sub ${PipelineName}
+    
   BuildImageProject:
     Type: AWS::CodeBuild::Project
     Properties:
       Name: !Sub ${PipelineName}-buildimage-${ModelName}
       Description: "Build the Model Training and Inference Image."
-      ServiceRole: !GetAtt MLOpsRole.Arn
+      ServiceRole: !GetAtt MLOpsSMPipelineRole.Arn
       Artifacts:
         Type: CODEPIPELINE
       Source:
@@ -297,116 +316,8 @@ Resources:
       Tags:
         - Key: Name
           Value: !Sub ${PipelineName}
-
-  BuildLambdaImageProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Name: !Sub ${PipelineName}-build-lambda-image-${ModelName}
-      Description: "Build a Lambda Container to test dev endpoint"
-      ServiceRole: !GetAtt MLOpsRole.Arn
-      Artifacts:
-        Type: CODEPIPELINE
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: |
-          Version: 0.2
-          phases:
-            install:
-              runtime-versions:
-                python: 3.8
-            pre_build:
-              commands:
-                - printenv
-                - echo Updating Packages ...
-                - pip install --upgrade --force-reinstall botocore boto3 awscli sagemaker aws-sam-cli
-                - |
-                  sh -c """
-                    sam build --build-dir deploy/ \
-                              --use-container \
-                              --manifest requirements.txt \
-                              --template-file ./assets/testDevEndpoint/sam.yaml \
-                              --base-dir assets/
-                    """
-            build:
-              Commands:
-                - echo Build started on `date`
-                - |
-                  sh -c """
-                  sam deploy  --stack-name ${STACK_NAME} \
-                              --template-file deploy/template.yaml \
-                              --capabilities CAPABILITY_NAMED_IAM \
-                              --image-repository ${CONTAINER_REGISTRY_URI} \
-                              --s3-bucket ${PIPELINE_BUCKET} \
-                              --s3-prefix ${PIPELINE_NAME}/artifacts \
-                              --no-fail-on-empty-changeset \
-                              --no-confirm-changeset
-                  """
-            post_build:
-              commands:
-                - echo Build completed on `date`
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: aws/codebuild/standard:4.0
-        PrivilegedMode: True
-        EnvironmentVariables:
-          - Name: IMAGE_REPO_NAME
-            Value: !ImportValue AbaloneLambdaRegistryName
-          - Name: IMAGE_TAG
-            Value: !Ref ImageTagName
-          - Name: AWS_ACCOUNT_ID
-            Value: !Sub ${AWS::AccountId}
-          - Name: AWS_DEFAULT_REGION
-            Value: !Sub ${AWS::Region}
-          - Name: MODEL_NAME
-            Value: !Ref ModelName
-          - Name: PIPELINE_BUCKET
-            Value: !ImportValue MLOpsBucket
-          - Name: STACK_NAME
-            Value: !Sub ${AWS::StackName}-test-endpoint
-          - Name: PIPELINE_NAME
-            Value: !Sub ${PipelineName}
-          - Name: CONTAINER_REGISTRY_URI
-            Value: !ImportValue AbaloneLambdaRegistryURI
-      Tags:
-        - Key: Name
-          Value: !Sub ${PipelineName}
-
-  BuildDeploymentProject:
-    Type: AWS::CodeBuild::Project
-    Properties:
-      Name: !Sub ${PipelineName}-build-deployment-${ModelName}
-      Description: "Builds the required resource properties for the deployment."
-      ServiceRole: !GetAtt MLOpsRole.Arn
-      Artifacts:
-        Type: CODEPIPELINE
-      Source:
-        Type: CODEPIPELINE
-        BuildSpec: buildspec.yml
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL 
-        Image: aws/codebuild/standard:4.0
-        EnvironmentVariables:
-          - Name: PIPELINE_NAME
-            Value: !Sub ${PipelineName}
-          - Name: IMAGE_REPO_NAME
-            Value: !ImportValue ContainerRegistryName
-          - Name: MODEL_NAME
-            Value: !Ref ModelName
-          - Name: IMAGE_TAG
-            Value: !Ref ImageTagName
-          - Name: MODEL_GROUP
-            Value: !GetAtt PackageGroup.Name
-          - Name: CONTAINER_REGISTRY_URI
-            Value: !ImportValue ContainerRegistryURI
-          - Name: PIPELINE_BUCKET
-            Value: !ImportValue MLOpsBucket
-      Tags:
-        - Key: Name
-          Value: !Sub ${PipelineName}
-
-  BuildTrainPipeline:
+  
+  BuildSageMakerPipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
       Name: !Sub ${PipelineName}
@@ -427,7 +338,8 @@ Resources:
                 - Name: ModelSourceOutput
               Configuration:
                 BranchName: main
-                RepositoryName: !ImportValue MLOpsRepoName
+#               RepositoryName: !ImportValue MLOpsRepoName
+                RepositoryName: abalone
                 PollForSourceChanges: false
               RunOrder: 1
             - Name: ETLSource
@@ -440,7 +352,7 @@ Resources:
                 - Name: EtlSourceOutput
               Configuration:
                 BranchName: etl
-                RepositoryName: !ImportValue MLOpsRepoName
+                RepositoryName: abalone
                 PollForSourceChanges: false
               RunOrder: 1
             - Name: DataSource
@@ -466,14 +378,38 @@ Resources:
                 - Name: TestSourceOutput
               Configuration:
                 BranchName: test
-                RepositoryName: !ImportValue MLOpsRepoName
+                RepositoryName: abalone
                 PollForSourceChanges: false
+              RunOrder: 1
+        - Name: CopySourceCode
+          Actions:
+            - Name: ETLSource
+              InputArtifacts:
+                - Name: EtlSourceOutput
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Version: "1"
+                Provider: Lambda
+              Configuration:
+                FunctionName: !Ref EtlSourceCopy
+              RunOrder: 1
+            - Name: EvalSource
+              InputArtifacts:
+                - Name: ModelSourceOutput
+              ActionTypeId:
+                Category: Invoke
+                Owner: AWS
+                Version: "1"
+                Provider: Lambda
+              Configuration:
+                FunctionName: !Ref EvalSourceCopy
               RunOrder: 1
         - Name: Build
           Actions:
             - Name: BuildImage
               InputArtifacts:
-               - Name: ModelSourceOutput
+              - Name: ModelSourceOutput
               OutputArtifacts:
                 - Name: BuildImageOutput
               ActionTypeId:
@@ -497,111 +433,48 @@ Resources:
               Configuration:
                 ProjectName: !Ref BuildLambdaImageProject
               RunOrder: 1
-        - Name: ETL
+        - Name: PipelineExecution
           Actions:
-            - Name: GlueJob
+            - Name: SubmitPipeline
               InputArtifacts:
-                - Name: EtlSourceOutput
+                - Name: ModelSourceOutput
               ActionTypeId:
                 Category: Invoke
                 Owner: AWS
                 Version: "1"
                 Provider: Lambda
               Configuration:
-                FunctionName: !Ref EtlLaunchJob
+                FunctionName: !Ref SubmitPipelineJob
+              Namespace: pipeline-abalone
               RunOrder: 1
-            - Name: ApproveETL
+            - Name: UpdatePipelineExecution
               ActionTypeId:
                 Category: Approval
                 Owner: AWS
                 Version: "1"
                 Provider: Manual
               Configuration:
-                CustomData: 'Did the Glue ETL Job run successfully?'
+                CustomData: 'Did pipeline complete successfully?'
               RunOrder: 2
-        - Name: Train
+        - Name: DeployEndpoint
           Actions:
-            - Name: TrainModel
-              InputArtifacts:
-                - Name: ModelSourceOutput
-              OutputArtifacts:
-                - Name: ModelTrainOutput
+            - Name: CreateEndpoint
               ActionTypeId:
                 Category: Invoke
                 Owner: AWS
                 Version: "1"
                 Provider: Lambda
               Configuration:
-                FunctionName: !Ref TrainingLaunchJob
-                UserParameters: !Sub mlops-pipeline-${ModelName}
+                FunctionName: !Ref CreateEndpoint
               RunOrder: 1
-            - Name: ApproveTrain
+            - Name: ConfirmEndpoint
               ActionTypeId:
                 Category: Approval
                 Owner: AWS
                 Version: "1"
                 Provider: Manual
               Configuration:
-                CustomData: 'Was this model trained successfully?'
-              RunOrder: 2
-        - Name: Evaluate
-          Actions:
-            - Name: EvaluateModel
-              InputArtifacts:
-                - Name: ModelSourceOutput
-              OutputArtifacts:
-                - Name: ModelEvaluateOutput
-              ActionTypeId:
-                Category: Invoke
-                Owner: AWS
-                Version: "1"
-                Provider: Lambda
-              Configuration:
-                FunctionName: !Ref TrainingJobEvaluate
-                UserParameters: !Sub mlops-pipeline-${ModelName}
-              RunOrder: 1
-            - Name: ApproveModel
-              ActionTypeId:
-                Category: Approval
-                Owner: AWS
-                Version: "1"
-                Provider: Manual
-              Configuration:
-                CustomData: 'Does model meet baseline?'
-              RunOrder: 2
-        - Name: DeployDev
-          Actions:
-            - Name: BuildDevDeployment
-              InputArtifacts:
-                - Name: ModelSourceOutput
-              OutputArtifacts:
-                - Name: BuildDevOutput
-              ActionTypeId:
-                Category: Build
-                Owner: AWS
-                Version: "1"
-                Provider: CodeBuild
-              Configuration:
-                ProjectName: !Ref BuildDeploymentProject
-                EnvironmentVariables: '[{"name":"STAGE","value":"Dev","type":"PLAINTEXT"}]'
-              RunOrder: 1
-            - Name: DeployDevModel
-              InputArtifacts:
-                - Name: BuildDevOutput
-              OutputArtifacts:
-                - Name: DeployDevOutput
-              ActionTypeId:
-                Category: Deploy
-                Owner: AWS
-                Version: "1"
-                Provider: CloudFormation
-              Configuration:
-                ActionMode: CREATE_UPDATE
-                RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/${RoleName}
-                Capabilities: CAPABILITY_NAMED_IAM
-                StackName: !Sub ${AWS::StackName}-dev
-                TemplateConfiguration: BuildDevOutput::Dev-config-export.json
-                TemplatePath: BuildDevOutput::deploy-model-Dev.yaml
+                CustomData: 'Did endpoint create successfully?'
               RunOrder: 2
             - Name: InvokeEndPoint
               InputArtifacts: []
@@ -616,7 +489,8 @@ Resources:
                 UserParameters: !Sub mlops-pipeline-${ModelName}
               RunOrder: 3
 
-  MLOpsRole:
+
+  MLOpsSMPipelineRole:
     Type: AWS::IAM::Role
     Properties:
       RoleName: !Ref RoleName
@@ -629,7 +503,6 @@ Resources:
                 - "s3.amazonaws.com"
                 - "cloudformation.amazonaws.com"
                 - "events.amazonaws.com"
-                - "glue.amazonaws.com"
                 - "lambda.amazonaws.com"
                 - "sagemaker.amazonaws.com"
                 - "codebuild.amazonaws.com"
@@ -638,7 +511,7 @@ Resources:
               - "sts:AssumeRole"
       Path: "/"
       Policies:
-        - PolicyName: "AWSDevToolsPolicy"
+        - PolicyName: "AWSSMPipelinesToolsPolicy"
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -650,7 +523,7 @@ Resources:
                   - "codecommit:UploadArchive"
                   - "codecommit:GetUploadArchiveStatus"
                   - "codecommit:CancelUploadArchive"
-                Resource:
+                Resource: 
                   - !ImportValue MLOpsRepoArn
                 Condition:
                   StringEquals:
@@ -726,17 +599,7 @@ Resources:
                   - "codebuild:*"
                 Resource:
                   - !Sub "arn:aws:codebuild:*:*:project/${PipelineName}-buildimage-${ModelName}"
-                  - !Sub "arn:aws:codebuild:*:*:project/${PipelineName}-build-deployment-${ModelName}"
                   - !Sub "arn:aws:codebuild:*:*:project/${PipelineName}-build-lambda-image-${ModelName}"
-                Condition:
-                  StringEquals:
-                    aws:RequestedRegion: !Sub ${AWS::Region}
-              - Sid: "GlueJobResourceAccess"
-                Effect: "Allow"
-                Action:
-                - "glue:*"
-                Resource:
-                - "arn:aws:glue:*:*:job/*"
                 Condition:
                   StringEquals:
                     aws:RequestedRegion: !Sub ${AWS::Region}
@@ -745,12 +608,13 @@ Resources:
                 Action:
                 - "lambda:*"
                 Resource:
-                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-training-launch-job-${ModelName}"
-                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-training-job-monitor-${ModelName}"
-                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-etl-launch-job-${ModelName}"
-                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-etl-job-monitor-${ModelName}"
-                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-training-job-evaluate-${ModelName}"
-                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-training-model-approval-${ModelName}"
+                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-etl-source-copy-${ModelName}"
+                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-eval-source-copy-${ModelName}"
+                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-submit-sagemaker-pipeline-${ModelName}"
+                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-pipeline-monitor-${ModelName}"
+                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-test-dev-endpoint-${ModelName}"
+                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-create-endpoint-${ModelName}"
+                  - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-confirm-endpoint-${ModelName}"
                   - !Sub "arn:aws:lambda:*:*:function:${PipelineName}-test-dev-endpoint-${ModelName}"
                 Condition:
                   StringEquals:
@@ -766,9 +630,10 @@ Resources:
                   - "codepipeline:PutJobSuccessResult"
                   - "codepipeline:GetPipelineState"
                   - "codepipeline:PutApprovalResult"
+                  - "codepipeline:ListActionExecutions"
                 Effect: "Allow"
                 Resource: "*"
-              - Sid: "MLOpsPassRole"
+              - Sid: "MLOpsSMPipelinesPassRole"
                 Effect: "Allow"
                 Action:
                   - "iam:PassRole"
@@ -796,7 +661,8 @@ Outputs:
   
   RoleNameArn:
     Description: Name of Model-Build Pipeline execution role
-    Value: !GetAtt MLOpsRole.Arn
+    Value: !GetAtt MLOpsSMPipelineRole.Arn
     Export:
       Name: MLOpsRoleNameArn
-  
+
+

@@ -2,6 +2,7 @@ import boto3
 import io
 import os
 import logging
+import botocore
 from botocore.exceptions import ClientError
 
 sm = boto3.client('sagemaker')
@@ -19,33 +20,52 @@ def handler(event, context):
     logger.debug(event)
     pipeline_name = os.environ['PIPELINE_NAME']
     model_name = os.environ['MODEL_NAME']
+    accountId = event['account']
+    region = os.environ['AWS_REGION']
+    pipeline_execution_arn=None
+    executionId=None
     result = None
     token = None
     try:
         response = cp.get_pipeline_state(name=pipeline_name)
         for stageState in response['stageStates']:
-            if stageState['stageName'] == 'Train':
+            if stageState['stageName'] == 'PipelineExecution':
                 for actionState in stageState['actionStates']:
-                    if actionState['actionName'] == 'ApproveTrain':
+                    if actionState['actionName'] == 'UpdatePipelineExecution':
                         latestExecution = actionState['latestExecution']
                         executionId = stageState['latestExecution']['pipelineExecutionId']
                         if latestExecution['status'] != 'InProgress':
-                            raise(Exception("Train approval is not awaiting approval: {}".format(latestExecution['status'])))
+                            raise(Exception("Pipeline is not awaiting approval: {}".format(latestExecution['status'])))
                         token = latestExecution['token']
         if token is None:
             raise(Exception("Action token wasn't found. Aborting..."))
-        response = sm.describe_training_job(
-            TrainingJobName="mlops-{}-{}".format(model_name, executionId)
-        )
-        status = response['TrainingJobStatus']
+        actionExecutionDetails = cp.list_action_executions(
+                                pipelineName=pipeline_name,
+                                filter={
+                                        'pipelineExecutionId': executionId
+                                        },
+                                )
+        for actionDetail in actionExecutionDetails['actionExecutionDetails']:
+            if actionDetail['actionName'] == 'SubmitPipeline':
+                response = sm.describe_pipeline_execution(
+                    PipelineExecutionArn=actionDetail['output']['outputVariables']['PipelineExecutionArn']
+                )
+        status = response['PipelineExecutionStatus']
         logger.info(status)
-        if status == "Completed":
+        if status == "Succeeded":
             result = {
-                'summary': 'Model trained successfully',
+                'summary': 'Pipeline executed successfully',
                 'status': 'Approved'
             }
-        elif status == "InProgress":
-            return "Training Job ({}) in progress".format(executionId)
+        elif status == "Executing":
+            return "Pipeline Execution in progress"
+        elif status == "Stopping":
+            return "Pipeline Execution in progress"
+        elif status == "Stopped":
+            result = {
+                'summary': response['FailureReason'],
+                'status': 'Rejected'
+            }
         else:
             result = {
                 'summary': response['FailureReason'],
@@ -60,20 +80,20 @@ def handler(event, context):
     try:
         response = cp.put_approval_result(
             pipelineName=pipeline_name,
-            stageName='Train',
-            actionName='ApproveTrain',
+            stageName='PipelineExecution',
+            actionName='UpdatePipelineExecution',
             result=result,token=token
         )
     except ClientError as e:
         error_message = e.response["Error"]["Message"]
         logger.error(error_message)
         raise Exception(error_message)
-
     try:
-        response = cw.disable_rule(Name="training-job-monitor-{}".format(model_name))
+        response = cw.disable_rule(Name="pipeline-monitor-{}".format(model_name))
     except ClientError as e:
         error_message = e.response["Error"]["Message"]
         logger.error(error_message)
         raise Exception(error_message)
-    
+
     return "Done!"
+                                        
