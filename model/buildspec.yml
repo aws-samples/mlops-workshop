@@ -9,7 +9,6 @@ phases:
       - pip install --upgrade --force-reinstall botocore boto3 awscli
   build:
     commands:
-      - cd model
       - echo Build started on `date`
       - echo Configuring CloudFormation Parameters for $STAGE Deployment...
       - |
@@ -29,6 +28,6 @@ phases:
       - echo Build completed on `date`
 artifacts:
   files:
-    - model/assets/$STAGE/$STAGE-config-export.json
-    - model/assets/$STAGE/deploy-model-$STAGE.yaml
+    - assets/$STAGE/$STAGE-config-export.json
+    - assets/$STAGE/deploy-model-$STAGE.yaml
   discard-paths: yes

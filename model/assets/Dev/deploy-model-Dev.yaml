@@ -36,7 +36,11 @@ Resources:
   Endpoint:
     Type: AWS::SageMaker::Endpoint
     Properties:
-      EndpointName: !Sub ${ModelName}-devtools-dev-endpoint
+      EndpointName: 
+        Fn::Join:
+          - "-"
+          - - Fn::ImportValue: MLOpsPipelineName
+            - "dev" 
       EndpointConfigName: !GetAtt EndpointConfig.EndpointConfigName
     DependsOn: EndpointConfig
 

@@ -9,7 +9,8 @@ Resources:
       FunctionName: 
         Fn::Join:
           - "-"
-          - - "test-dev-endpoint" 
+          - - Fn::ImportValue: MLOpsPipelineName
+            - "test-dev-endpoint" 
             - Fn::ImportValue: ModelName
       PackageType: Image
       Role: !ImportValue MLOpsRoleNameArn
@@ -19,12 +20,15 @@ Resources:
         Variables:
           PIPELINE_NAME: !ImportValue MLOpsPipelineName
           PIPELINE_BUCKET: !ImportValue MLOpsBucket
-          DEV_STACKNAME: 
+          ENDPOINT: 
             Fn::Join:
               - "-"
               - - Fn::ImportValue: MLOpsPipelineName
                 - "dev"
           TEST_DATA: "input/testing/test.csv"
+      CodeUri: testDevEndpoint/
+      Tags:
+        Name: !ImportValue MLOpsPipelineName
     Metadata:
       Dockerfile: Dockerfile
       DockerContext: ./testDevEndpoint

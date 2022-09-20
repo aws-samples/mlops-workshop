@@ -11,30 +11,27 @@ def lambda_handler(event, context):
 
     response_data = {}
 
+    source_bucket = event['ResourceProperties']["SourceBucket"]
     target_bucket = event['ResourceProperties']["TargetBucket"]
+    source_key = event['ResourceProperties']["SourceKey"]
     target_key = event['ResourceProperties']["TargetKey"]
 
     try:
         if event_type in ('Create', 'Update'):
-            print(f"Writing requirements.txt to s3://{target_bucket}/{target_key}")
-
-            file_contents = '''shortuuid
-boto3>=1.20
-'''
-
-            response = client.put_object(
-                Body=file_contents,
-                Bucket=target_bucket,
-                Key=target_key
-            )
+            print(f"Copying s3://{source_bucket}/{source_key} to s3://{target_bucket}/{target_key}")
+            copy_source = {
+                "Bucket": source_bucket,
+                "Key": source_key
+            }
+            response = client.copy(copy_source, target_bucket, target_key)
             print(f"Got response: {response}")
             print("Object created")
         elif event_type == "Delete":
             print("Deleting s3://{target_bucket}/{target_key}")
-
-            s3 = boto3.resource('s3')
-            bucket = s3.Bucket(target_bucket)
-            response = bucket.object_versions.filter(Prefix=target_key).delete()
+            response = client.delete_object(
+                Bucket=target_bucket,
+                Key=target_key
+            )
             print(f"Got response: {response}")
             print("Object deleted")
         print("Operation successful")
@@ -47,6 +44,5 @@ boto3>=1.20
 
     return {
         'statusCode': 200,
-        'body': json.dumps('Resource Staged')
+        'body': json.dumps('Hello from Lambda!')
     }
-

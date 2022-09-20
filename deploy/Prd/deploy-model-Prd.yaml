@@ -116,7 +116,11 @@ Resources:
   Endpoint:
     Type: AWS::SageMaker::Endpoint
     Properties:
-      EndpointName: !Sub ${ModelName}-prd-endpoint
+      EndpointName:
+        Fn::Join:
+          - "-"
+          - - Fn::ImportValue: MLOpsPipelineName
+            - "prd" 
       EndpointConfigName: !GetAtt EndpointConfig.EndpointConfigName
     DependsOn: EndpointConfig
  

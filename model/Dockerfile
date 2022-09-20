@@ -1,4 +1,4 @@
-FROM 763104351884.dkr.ecr.us-west-2.amazonaws.com/tensorflow-training:2.7.0-cpu-py38-ubuntu20.04-e3-v1.0
+FROM 763104351884.dkr.ecr.<Region>.amazonaws.com/tensorflow-training:2.7.0-cpu-py38-ubuntu20.04-e3-v1.0
 COPY requirements.txt requirements.txt
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

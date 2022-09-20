@@ -35,7 +35,11 @@ Resources:
   Endpoint:
     Type: AWS::SageMaker::Endpoint
     Properties:
-      EndpointName: !Sub ${ModelName}-qa-endpoint
+      EndpointName:
+        Fn::Join:
+          - "-"
+          - - Fn::ImportValue: MLOpsPipelineName
+            - "qa" 
       EndpointConfigName: !GetAtt EndpointConfig.EndpointConfigName
     DependsOn: EndpointConfig
 

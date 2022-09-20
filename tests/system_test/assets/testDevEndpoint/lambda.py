@@ -73,7 +73,7 @@ def handler(event, context):
     # Get Input Variables    
     pipeline_name = os.environ['PIPELINE_NAME']
     bucket = os.environ['PIPELINE_BUCKET']
-    dev_stackname = os.environ['DEV_STACKNAME']
+    endpoint_name = os.environ['ENDPOINT']
     test_data = os.environ['TEST_DATA']
     jobId = event['CodePipeline.job']['id']
     key = None
@@ -88,11 +88,6 @@ def handler(event, context):
                     executionId = stageState['latestExecution']['pipelineExecutionId']
     key =  os.path.join(executionId, test_data)
     logger.info(key)
-    #Get endpoint name from stack
-    outputs=cf.Stack(dev_stackname).outputs
-    for output in outputs:
-        if output['OutputKey'] == 'EndpointName':
-            endpoint_name = output['OutputValue']
     
     # Get the evaluation results from SageMaker hosted model
     logger.info("Evaluating SageMaker Endpoint ...")
