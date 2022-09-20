@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Create a AWS CodePipeline to Operationalize a Machine Learning Model.
+Parameters:
+  PublicResourcesBucket:
+    Type: String
+    Description: The bucket containing public resources for this workshop
+    Default: ee-assets-prod-us-east-1
+  PublicResourcesPrefix:
+    Type: String
+    Description: Prefix for public assets
+    Default: modules/003e4525f16a42ada5b3ff651c932370/v1/
+Resources:
+  CommonStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: https://s3.us-east-1.amazonaws.com/ee-assets-prod-us-east-1/modules/003e4525f16a42ada5b3ff651c932370/v1//908efcbbb5e65e2e474e9e43496de51a.template
+      Parameters:
+        PublicResourcesPrefix:
+          Ref: PublicResourcesPrefix
+        PublicResourcesBucket:
+          Ref: PublicResourcesBucket
+    Metadata:
+      SamResourceId: CommonStack
+  PipelineStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: https://s3.us-east-1.amazonaws.com/ee-assets-prod-us-east-1/modules/003e4525f16a42ada5b3ff651c932370/v1//add27f1e551796347b85cf143c39708b.template
+      Parameters:
+        ImageRepoName:
+          Fn::GetAtt:
+          - CommonStack
+          - Outputs.ContainerRegistryName
+        ModelSourceRepo:
+          Fn::GetAtt:
+          - CommonStack
+          - Outputs.MLOpsRepoName
+    Metadata:
+      SamResourceId: PipelineStack
+  MWAAStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: https://s3.us-east-1.amazonaws.com/ee-assets-prod-us-east-1/modules/003e4525f16a42ada5b3ff651c932370/v1//e4cf1c549e3904973b6e9ac2f9e37434.template
+      Parameters:
+        S3ObjectCustomResourceArn:
+          Fn::GetAtt:
+          - CommonStack
+          - Outputs.ResourceStagingFunctionArn
+        ImageRepoName:
+          Fn::GetAtt:
+          - CommonStack
+          - Outputs.ContainerRegistryName
+        MLOpsBucket:
+          Fn::GetAtt:
+          - CommonStack
+          - Outputs.MLOpsBucket
+        DataBucket:
+          Fn::GetAtt:
+          - CommonStack
+          - Outputs.DataBucket
+        ModelSourceRepo:
+          Fn::GetAtt:
+          - CommonStack
+          - Outputs.MLOpsRepoName
+        PublicResourcesPrefix:
+          Ref: PublicResourcesPrefix
+        PublicResourcesBucket:
+          Ref: PublicResourcesBucket
+    Metadata:
+      SamResourceId: MWAAStack
