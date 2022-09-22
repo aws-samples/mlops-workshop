@@ -18,7 +18,7 @@ git clone https://git-codecommit.${AWS_DEFAULT_REGION}.amazonaws.com/v1/repos/$I
 echo Creating ETL branch
 cd ~/environment/$IMAGE_REPO_NAME
 git checkout -b etl
-cp ~/environment/mlops/etl/* .
+cp ~/environment/mlops-workshop/etl/* .
 git add -A 
 git commit -m "Initial commit of etl assets"
 git push --set-upstream origin etl
@@ -28,7 +28,7 @@ cd ~/environment/$IMAGE_REPO_NAME
 git checkout -b main
 git branch --unset-upstream
 git rm -rf .
-cp -R ~/environment/mlops/model/* .
+cp -R ~/environment/mlops-workshop/model/* .
 sed -i "s/<Region>/${AWS_DEFAULT_REGION}/" ~/environment/$IMAGE_REPO_NAME/Dockerfile
 sed -i "s/<AccountId>/${AWS_ACCOUNT_ID}/" ~/environment/$IMAGE_REPO_NAME/trainingjob.json
 sed -i "s/<Region>/${AWS_DEFAULT_REGION}/" ~/environment/$IMAGE_REPO_NAME/trainingjob.json
@@ -42,9 +42,9 @@ echo Creating Test branch
 cd ~/environment/$IMAGE_REPO_NAME
 git checkout -b test
 git rm -rf .
-cp -R ~/environment/mlops/tests/system_test/* .
+cp -R ~/environment/mlops-workshop/tests/system_test/* .
 mkdir unit_test
-cp -R ~/environment/mlops/tests/unit_test/* ./unit_test
+cp -R ~/environment/mlops-workshop/tests/unit_test/* ./unit_test
 git add -A
 git commit -m "Initial commit of system test assets"
 git push --set-upstream origin test
@@ -53,7 +53,7 @@ echo Creating Deploy branch
 cd ~/environment/$IMAGE_REPO_NAME
 git checkout -b deploy
 git rm -rf .
-cp -R ~/environment/mlops/deploy/* .
+cp -R ~/environment/mlops-workshop/deploy/* .
 git add -A
 git commit -m "Initial commit of deploy assets"
 git push --set-upstream origin deploy

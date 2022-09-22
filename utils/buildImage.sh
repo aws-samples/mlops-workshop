@@ -8,7 +8,7 @@ echo $AWS_ACCOUNT_ID
 IMAGE_TAG=latest
 IMAGE_REPO_NAME=abalone
 
-cd ~/environment/mlops/model
+cd ~/environment/mlops-workshop/model
 pwd
 if test -f Dockerfile; then
     sed -i "s/<Region>/${AWS_DEFAULT_REGION}/" Dockerfile
