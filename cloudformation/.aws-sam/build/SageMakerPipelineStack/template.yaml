@@ -1,0 +1,746 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Create a AWS CodePipeline to train a Machine Learning Model for SageMaker
+  Pipelines.
+Parameters:
+  RoleName:
+    Type: String
+    Description: Name of the Pipeline execution Role.
+    Default: MLOps-SageMakerPipelines
+  ModelName:
+    Type: String
+    Description: Name of the model
+    Default: abalone
+  ImageTagName:
+    Type: String
+    Description: Image Version
+    Default: latest
+  PipelineName:
+    Type: String
+    Description: Name of pipeline in CodePipeline
+    Default: mlops-sagemaker-pipelines
+Resources:
+  EtlSourceCopy:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${PipelineName}-etl-source-copy-${ModelName}
+      Description: Function that will copy ETL Source Code
+      Handler: lambda.handler
+      MemorySize: 128
+      Role:
+        Fn::GetAtt:
+        - MLOpsSMPipelineRole
+        - Arn
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          PIPELINE_NAME:
+            Fn::Sub: ${PipelineName}
+          MODEL_NAME:
+            Ref: ModelName
+          PIPELINE_BUCKET:
+            Fn::ImportValue: MLOpsBucket
+          ROLE:
+            Fn::GetAtt:
+            - MLOpsSMPipelineRole
+            - Arn
+      CodeUri: EtlSourceCopy
+      Tags:
+        Name:
+          Fn::Sub: ${PipelineName}
+    Metadata:
+      SamResourceId: EtlSourceCopy
+  EvalSourceCopy:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${PipelineName}-eval-source-copy-${ModelName}
+      Description: Function that will copy Evaluation Source Code
+      Handler: lambda.handler
+      MemorySize: 128
+      Role:
+        Fn::GetAtt:
+        - MLOpsSMPipelineRole
+        - Arn
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          PIPELINE_NAME:
+            Fn::Sub: ${PipelineName}
+          MODEL_NAME:
+            Ref: ModelName
+          PIPELINE_BUCKET:
+            Fn::ImportValue: MLOpsBucket
+          ROLE:
+            Fn::GetAtt:
+            - MLOpsSMPipelineRole
+            - Arn
+      CodeUri: EvalSourceCopy
+      Tags:
+        Name:
+          Fn::Sub: ${PipelineName}
+    Metadata:
+      SamResourceId: EvalSourceCopy
+  SubmitPipelineJob:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${PipelineName}-submit-sagemaker-pipeline-${ModelName}
+      Description: Function that will submit a SageMaker Pipeline job from a JSON
+        definition
+      Handler: lambda.handler
+      MemorySize: 128
+      Role:
+        Fn::GetAtt:
+        - MLOpsSMPipelineRole
+        - Arn
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          PIPELINE_NAME:
+            Fn::Sub: ${PipelineName}
+          MODEL_NAME:
+            Ref: ModelName
+          PIPELINE_BUCKET:
+            Fn::ImportValue: MLOpsBucket
+          ROLE:
+            Fn::GetAtt:
+            - MLOpsSMPipelineRole
+            - Arn
+      CodeUri: SubmitPipelineJob
+      Tags:
+        Name:
+          Fn::Sub: ${PipelineName}
+    Metadata:
+      SamResourceId: SubmitPipelineJob
+  PipelineMonitor:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${PipelineName}-pipeline-monitor-${ModelName}
+      Description: Function that will monitor that status of the SageMaker Pipeline
+        Job.
+      Handler: lambda.handler
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+        - MLOpsSMPipelineRole
+        - Arn
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          PIPELINE_NAME:
+            Fn::Sub: ${PipelineName}
+          MODEL_NAME:
+            Ref: ModelName
+      CodeUri: PipelineMonitor
+      Tags:
+        Name:
+          Fn::Sub: ${PipelineName}
+    Metadata:
+      SamResourceId: PipelineMonitor
+  CreateEndpoint:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${PipelineName}-create-endpoint-${ModelName}
+      Description: Function that create a SageMaker Endpoint.
+      Handler: lambda.handler
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+        - MLOpsSMPipelineRole
+        - Arn
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          PIPELINE_NAME:
+            Fn::Sub: ${PipelineName}
+          ROLE:
+            Fn::GetAtt:
+            - MLOpsSMPipelineRole
+            - Arn
+          ENDPOINT:
+            Fn::Sub: ${PipelineName}-dev
+          MODEL_NAME:
+            Ref: ModelName
+      CodeUri: CreateEndpoint
+      Tags:
+        Name:
+          Fn::Sub: ${PipelineName}
+    Metadata:
+      SamResourceId: CreateEndpoint
+  PipelineMonitoringEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Event that will monitor the sagemaker pipeline job and inform codepipeline
+        as it finishes.
+      Name:
+        Fn::Sub: pipeline-monitor-${ModelName}
+      ScheduleExpression: cron(0/1 * * * ? *)
+      State: DISABLED
+      Targets:
+      - Arn:
+          Fn::Sub: arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${PipelineName}-pipeline-monitor-${ModelName}
+        Id:
+          Fn::Sub: pipeline-event-${ModelName}
+    DependsOn: PipelineMonitor
+  PipelineMonitorPermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::Sub: ${PipelineName}-pipeline-monitor-${ModelName}
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - PipelineMonitoringEvent
+        - Arn
+    DependsOn: PipelineMonitor
+  ConfirmEndpoint:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Sub: ${PipelineName}-confirm-endpoint-${ModelName}
+      Description: Function that monitors a SageMaker Endpoint creation.
+      Handler: lambda.handler
+      MemorySize: 512
+      Role:
+        Fn::GetAtt:
+        - MLOpsSMPipelineRole
+        - Arn
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          PIPELINE_NAME:
+            Fn::Sub: ${PipelineName}
+          ROLE:
+            Fn::GetAtt:
+            - MLOpsSMPipelineRole
+            - Arn
+          ENDPOINT:
+            Fn::Sub: ${PipelineName}-dev
+          MODEL_NAME:
+            Ref: ModelName
+      CodeUri: ConfirmEndpoint
+      Tags:
+        Name:
+          Fn::Sub: ${PipelineName}
+    Metadata:
+      SamResourceId: ConfirmEndpoint
+  EndpointMonitoringEvent:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Event that will monitor the creation of a SageMaker Endpoint and
+        inform codepipeline as it finishes.
+      Name:
+        Fn::Sub: endpoint-monitor-${ModelName}
+      ScheduleExpression: cron(0/2 * * * ? *)
+      State: DISABLED
+      Targets:
+      - Arn:
+          Fn::Sub: arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:${PipelineName}-confirm-endpoint-${ModelName}
+        Id:
+          Fn::Sub: endpoint-event-${ModelName}
+    DependsOn: ConfirmEndpoint
+  EndpointMonitorPermissions:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName:
+        Fn::Sub: ${PipelineName}-confirm-endpoint-${ModelName}
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - EndpointMonitoringEvent
+        - Arn
+    DependsOn: ConfirmEndpoint
+  BuildLambdaImageProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name:
+        Fn::Sub: ${PipelineName}-build-lambda-image-${ModelName}
+      Description: Build a Lambda Container to test dev endpoint
+      ServiceRole:
+        Fn::GetAtt:
+        - MLOpsSMPipelineRole
+        - Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "Version: 0.2\nphases:\n  install:\n    runtime-versions:\n   \
+          \   python: 3.8\n  pre_build:\n    commands:\n      - printenv\n      -\
+          \ echo Updating Packages ...\n      - pip install --upgrade --force-reinstall\
+          \ botocore boto3 awscli sagemaker aws-sam-cli\n      - |\n        sh -c\
+          \ \"\"\"\n          sam build --build-dir deploy/ \\\n                 \
+          \   --use-container \\\n                    --manifest requirements.txt\
+          \ \\\n                    --template-file ./assets/testSageMakerPipelineEndpoint/sam.yaml\
+          \ \\\n                    --base-dir assets/\n          \"\"\"\n  build:\n\
+          \    Commands:\n      - echo Build started on `date`\n      - |\n      \
+          \  sh -c \"\"\"\n        sam deploy  --stack-name ${STACK_NAME} \\\n   \
+          \                 --template-file deploy/template.yaml \\\n            \
+          \        --capabilities CAPABILITY_NAMED_IAM \\\n                    --image-repository\
+          \ ${CONTAINER_REGISTRY_URI} \\\n                    --s3-bucket ${PIPELINE_BUCKET}\
+          \ \\\n                    --s3-prefix ${PIPELINE_NAME}/artifacts \\\n  \
+          \                  --no-fail-on-empty-changeset \\\n                   \
+          \ --no-confirm-changeset\n        \"\"\"\n  post_build:\n    commands:\n\
+          \      - echo Build completed on `date`\n"
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:4.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+        - Name: IMAGE_REPO_NAME
+          Value:
+            Fn::ImportValue: AbaloneLambdaRegistryName
+        - Name: IMAGE_TAG
+          Value:
+            Ref: ImageTagName
+        - Name: AWS_ACCOUNT_ID
+          Value:
+            Fn::Sub: ${AWS::AccountId}
+        - Name: AWS_DEFAULT_REGION
+          Value:
+            Fn::Sub: ${AWS::Region}
+        - Name: MODEL_NAME
+          Value:
+            Ref: ModelName
+        - Name: PIPELINE_BUCKET
+          Value:
+            Fn::ImportValue: MLOpsBucket
+        - Name: STACK_NAME
+          Value:
+            Fn::Sub: ${PipelineName}-test-endpoint
+        - Name: PIPELINE_NAME
+          Value:
+            Fn::Sub: ${PipelineName}
+        - Name: CONTAINER_REGISTRY_URI
+          Value:
+            Fn::ImportValue: AbaloneLambdaRegistryURI
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${PipelineName}
+  BuildImageProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name:
+        Fn::Sub: ${PipelineName}-buildimage-${ModelName}
+      Description: Build the Model Training and Inference Image.
+      ServiceRole:
+        Fn::GetAtt:
+        - MLOpsSMPipelineRole
+        - Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: "Version: 0.2\nphases:\n  install:\n    runtime-versions:\n   \
+          \   python: 3.8\n  pre_build:\n    commands:\n      - printenv\n      -\
+          \ echo Updating Packages ...\n      - pip install --upgrade --force-reinstall\
+          \ botocore boto3 awscli\n  build:\n    Commands:\n      - echo Build started\
+          \ on `date`\n      - echo Logging in to the Amazon Deep Learning Contain\
+          \ Repository ...\n      - aws ecr get-login-password --region $AWS_DEFAULT_REGION\
+          \ | docker login --username AWS --password-stdin 763104351884.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com\n\
+          \      - echo Building the Container image...\n      - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG\
+          \ .\n      - docker tag $IMAGE_REPO_NAME:$IMAGE_TAG $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG\n\
+          \  post_build:\n    commands:\n      - echo Logging in to ECR Repository...\n\
+          \      - $(aws ecr get-login --no-include-email --region $AWS_DEFAULT_REGION)\n\
+          \      - echo Pushing the Container image...\n      - docker push $AWS_ACCOUNT_ID.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com/$IMAGE_REPO_NAME:$IMAGE_TAG\n\
+          \    finally:\n      - echo Build completed on `date`\n"
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:4.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+        - Name: IMAGE_REPO_NAME
+          Value:
+            Fn::ImportValue: ContainerRegistryName
+        - Name: IMAGE_TAG
+          Value:
+            Ref: ImageTagName
+        - Name: AWS_ACCOUNT_ID
+          Value:
+            Fn::Sub: ${AWS::AccountId}
+        - Name: AWS_DEFAULT_REGION
+          Value:
+            Fn::Sub: ${AWS::Region}
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Sub: ${PipelineName}
+  BuildSageMakerPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name:
+        Fn::Sub: ${PipelineName}
+      RoleArn:
+        Fn::Sub: arn:aws:iam::${AWS::AccountId}:role/${RoleName}
+      ArtifactStore:
+        Type: S3
+        Location:
+          Fn::ImportValue: MLOpsBucket
+      Stages:
+      - Name: Source
+        Actions:
+        - Name: ModelSource
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Version: '1'
+            Provider: CodeCommit
+          OutputArtifacts:
+          - Name: ModelSourceOutput
+          Configuration:
+            BranchName: main
+            RepositoryName: abalone
+            PollForSourceChanges: false
+          RunOrder: 1
+        - Name: ETLSource
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Version: '1'
+            Provider: CodeCommit
+          OutputArtifacts:
+          - Name: EtlSourceOutput
+          Configuration:
+            BranchName: etl
+            RepositoryName: abalone
+            PollForSourceChanges: false
+          RunOrder: 1
+        - Name: DataSource
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Version: '1'
+            Provider: S3
+          OutputArtifacts:
+          - Name: DataSourceOutput
+          Configuration:
+            S3Bucket:
+              Fn::ImportValue: DataBucket
+            S3ObjectKey: input/raw/abalone.csv
+            PollForSourceChanges: false
+          RunOrder: 1
+        - Name: TestSource
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Version: '1'
+            Provider: CodeCommit
+          OutputArtifacts:
+          - Name: TestSourceOutput
+          Configuration:
+            BranchName: test
+            RepositoryName: abalone
+            PollForSourceChanges: false
+          RunOrder: 1
+      - Name: CopySourceCode
+        Actions:
+        - Name: ETLSource
+          InputArtifacts:
+          - Name: EtlSourceOutput
+          ActionTypeId:
+            Category: Invoke
+            Owner: AWS
+            Version: '1'
+            Provider: Lambda
+          Configuration:
+            FunctionName:
+              Ref: EtlSourceCopy
+          RunOrder: 1
+        - Name: EvalSource
+          InputArtifacts:
+          - Name: ModelSourceOutput
+          ActionTypeId:
+            Category: Invoke
+            Owner: AWS
+            Version: '1'
+            Provider: Lambda
+          Configuration:
+            FunctionName:
+              Ref: EvalSourceCopy
+          RunOrder: 1
+      - Name: Build
+        Actions:
+        - Name: BuildImage
+          InputArtifacts:
+          - Name: ModelSourceOutput
+          OutputArtifacts:
+          - Name: BuildImageOutput
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          Configuration:
+            ProjectName:
+              Ref: BuildImageProject
+          RunOrder: 1
+        - Name: BuildLambdaImage
+          InputArtifacts:
+          - Name: TestSourceOutput
+          OutputArtifacts:
+          - Name: BuildLambdaImageOutput
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          Configuration:
+            ProjectName:
+              Ref: BuildLambdaImageProject
+          RunOrder: 1
+      - Name: PipelineExecution
+        Actions:
+        - Name: SubmitPipeline
+          InputArtifacts:
+          - Name: ModelSourceOutput
+          ActionTypeId:
+            Category: Invoke
+            Owner: AWS
+            Version: '1'
+            Provider: Lambda
+          Configuration:
+            FunctionName:
+              Ref: SubmitPipelineJob
+          Namespace: pipeline-abalone
+          RunOrder: 1
+        - Name: UpdatePipelineExecution
+          ActionTypeId:
+            Category: Approval
+            Owner: AWS
+            Version: '1'
+            Provider: Manual
+          Configuration:
+            CustomData: Did pipeline complete successfully?
+          RunOrder: 2
+      - Name: DeployEndpoint
+        Actions:
+        - Name: CreateEndpoint
+          ActionTypeId:
+            Category: Invoke
+            Owner: AWS
+            Version: '1'
+            Provider: Lambda
+          Configuration:
+            FunctionName:
+              Ref: CreateEndpoint
+          RunOrder: 1
+        - Name: ConfirmEndpoint
+          ActionTypeId:
+            Category: Approval
+            Owner: AWS
+            Version: '1'
+            Provider: Manual
+          Configuration:
+            CustomData: Did endpoint create successfully?
+          RunOrder: 2
+        - Name: InvokeEndPoint
+          InputArtifacts: []
+          OutputArtifacts: []
+          ActionTypeId:
+            Category: Invoke
+            Owner: AWS
+            Version: '1'
+            Provider: Lambda
+          Configuration:
+            FunctionName:
+              Fn::Sub: ${PipelineName}-test-dev-endpoint-${ModelName}
+            UserParameters:
+              Fn::Sub: mlops-pipeline-${ModelName}
+          RunOrder: 3
+  MLOpsSMPipelineRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Ref: RoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - s3.amazonaws.com
+            - cloudformation.amazonaws.com
+            - events.amazonaws.com
+            - lambda.amazonaws.com
+            - sagemaker.amazonaws.com
+            - codebuild.amazonaws.com
+            - codepipeline.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: AWSSMPipelinesToolsPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: CodeCommitAccess
+            Effect: Allow
+            Action:
+            - codecommit:GetBranch
+            - codecommit:GetCommit
+            - codecommit:UploadArchive
+            - codecommit:GetUploadArchiveStatus
+            - codecommit:CancelUploadArchive
+            Resource:
+            - Fn::ImportValue: MLOpsRepoArn
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: UploadImage
+            Effect: Allow
+            Action: ecr:*
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: ECRAuthorizationToken
+            Effect: Allow
+            Action:
+            - ecr:GetAuthorizationToken
+            Resource: '*'
+          - Sid: CloudWatchMetrics
+            Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            - cloudwatch:GetMetricData
+            - cloudwatch:GetMetricStatistics
+            - cloudwatch:ListMetrics
+            - cloudwatch:PutMetricAlarm
+            - cloudwatch:DeleteAlarms
+            - cloudwatch:DescribeAlarms
+            Resource: '*'
+          - Sid: CloudWatchLogs
+            Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:DescribeLogStreams
+            - logs:PutLogEvents
+            - logs:GetLogEvents
+            Resource: '*'
+          - Sid: BucketAccess
+            Effect: Allow
+            Action:
+            - s3:*
+            Resource:
+            - arn:aws:s3:::data-*
+            - arn:aws:s3:::data-*/*
+            - arn:aws:s3:::mlops-*
+            - arn:aws:s3:::mlops-*/*
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: CloudWatchEventsAccess
+            Effect: Allow
+            Action:
+            - events:*
+            Resource: '*'
+          - Sid: CloudFormationAccess
+            Effect: Allow
+            Action:
+            - cloudformation:Create*
+            - cloudformation:Delete*
+            - cloudformation:Describe*
+            - cloudformation:Update*
+            - cloudformation:List*
+            - cloudformation:ExecuteChangeSet
+            - cloudformation:GetTemplateSummary
+            Resource:
+            - arn:aws:cloudformation:*:*:stack/*
+            - arn:aws:cloudformation:*:aws:transform/Serverless-2016-10-31
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: CodeBuildImageAccess
+            Effect: Allow
+            Action:
+            - codebuild:*
+            Resource:
+            - Fn::Sub: arn:aws:codebuild:*:*:project/${PipelineName}-buildimage-${ModelName}
+            - Fn::Sub: arn:aws:codebuild:*:*:project/${PipelineName}-build-lambda-image-${ModelName}
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: LambdaResourceAccess
+            Effect: Allow
+            Action:
+            - lambda:*
+            Resource:
+            - Fn::Sub: arn:aws:lambda:*:*:function:${PipelineName}-etl-source-copy-${ModelName}
+            - Fn::Sub: arn:aws:lambda:*:*:function:${PipelineName}-eval-source-copy-${ModelName}
+            - Fn::Sub: arn:aws:lambda:*:*:function:${PipelineName}-submit-sagemaker-pipeline-${ModelName}
+            - Fn::Sub: arn:aws:lambda:*:*:function:${PipelineName}-pipeline-monitor-${ModelName}
+            - Fn::Sub: arn:aws:lambda:*:*:function:${PipelineName}-test-dev-endpoint-${ModelName}
+            - Fn::Sub: arn:aws:lambda:*:*:function:${PipelineName}-create-endpoint-${ModelName}
+            - Fn::Sub: arn:aws:lambda:*:*:function:${PipelineName}-confirm-endpoint-${ModelName}
+            - Fn::Sub: arn:aws:lambda:*:*:function:${PipelineName}-test-dev-endpoint-${ModelName}
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: SageMakerFullAccess
+            Effect: Allow
+            Action:
+            - sagemaker:*
+            Resource: '*'
+          - Sid: CodePipelineAccess
+            Action:
+            - codepipeline:PutJobFailureResult
+            - codepipeline:PutJobSuccessResult
+            - codepipeline:GetPipelineState
+            - codepipeline:PutApprovalResult
+            - codepipeline:ListActionExecutions
+            Effect: Allow
+            Resource: '*'
+          - Sid: MLOpsSMPipelinesPassRole
+            Effect: Allow
+            Action:
+            - iam:PassRole
+            Resource:
+            - Fn::Sub: arn:aws:iam::*:role/${RoleName}
+Outputs:
+  ModelName:
+    Description: Name of the model
+    Value:
+      Ref: ModelName
+    Export:
+      Name: ModelName
+  PipelineName:
+    Description: Name of MLOps pipeline
+    Value:
+      Ref: PipelineName
+    Export:
+      Name: MLOpsPipelineName
+  RoleName:
+    Description: Name of Model-Build Pipeline execution role
+    Value:
+      Ref: RoleName
+    Export:
+      Name: MLOpsRoleName
+  RoleNameArn:
+    Description: Name of Model-Build Pipeline execution role
+    Value:
+      Fn::GetAtt:
+      - MLOpsSMPipelineRole
+      - Arn
+    Export:
+      Name: MLOpsRoleNameArn

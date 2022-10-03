@@ -1,0 +1,24 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Create resources for AWS Sagemaker Pipelines
+Resources:
+  CommonStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: CommonStack/template.yaml
+    Metadata:
+      SamResourceId: CommonStack
+  SageMakerPipelineStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: CommonStack
+    Properties:
+      TemplateURL: SageMakerPipelineStack/template.yaml
+    Metadata:
+      SamResourceId: SageMakerPipelineStack
+  DeployStack:
+    Type: AWS::CloudFormation::Stack
+    DependsOn: SageMakerPipelineStack
+    Properties:
+      TemplateURL: DeployStack/template.yaml
+    Metadata:
+      SamResourceId: DeployStack

@@ -1,0 +1,454 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+Description: Create a AWS CodePipeline to deploy a Machine Learning Model into QA
+  and Production
+Parameters:
+  RoleName:
+    Type: String
+    Description: 'Name of role that will have necessary permissions to deploy into
+      QA and Production '
+    Default: MLOpsDeploy
+Resources:
+  ModelPackageName:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /abalone/model-package-name
+      Type: String
+      Value: test
+      Description: SSM Parameter for storing modelARN
+  TrainedModel:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName:
+        Fn::Join:
+        - '-'
+        - - trained-model
+          - Fn::ImportValue: ModelName
+      Description: Function that will deploy model into  environment
+      Handler: lambda.handler
+      MemorySize: 512
+      Runtime: python3.8
+      Timeout: 60
+      Environment:
+        Variables:
+          model_package_name:
+            Ref: ModelPackageName
+      CodeUri: TrainedModel
+      Role:
+        Fn::GetAtt:
+        - MLOpsDeployRole
+        - Arn
+    Metadata:
+      SamResourceId: TrainedModel
+  StoreTrainedModel:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: Store Model ARN
+      State: ENABLED
+      EventPattern:
+        source:
+        - aws.sagemaker
+        detail-type:
+        - SageMaker Model Package State Change
+        detail:
+          ModelPackageGroupName:
+          - prefix: AbalonePackageGroup
+      Targets:
+      - Arn:
+          Fn::GetAtt:
+          - TrainedModel
+          - Arn
+        Id: StoreTrainedModel
+      RoleArn:
+        Fn::GetAtt:
+        - MLOpsDeployRole
+        - Arn
+  EventBridgeLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName:
+        Fn::GetAtt:
+        - TrainedModel
+        - Arn
+      Action: lambda:InvokeFunction
+      Principal: events.amazonaws.com
+      SourceArn:
+        Fn::GetAtt:
+        - StoreTrainedModel
+        - Arn
+  BuildDeploymentProject:
+    Type: AWS::CodeBuild::Project
+    Properties:
+      Name:
+        Fn::Join:
+        - '-'
+        - - mlops-package-deployment
+          - Fn::ImportValue: ModelName
+      Description: Bundle the required resource properties required for deployment.
+      ServiceRole:
+        Fn::GetAtt:
+        - MLOpsDeployRole
+        - Arn
+      Artifacts:
+        Type: CODEPIPELINE
+      Source:
+        Type: CODEPIPELINE
+        BuildSpec: buildspec.yml
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:4.0
+        EnvironmentVariables:
+        - Name: PIPELINE_NAME
+          Value:
+            Fn::Sub: ${AWS::StackName}
+        - Name: MODEL_PACKAGE_NAME
+          Value:
+            Ref: ModelPackageName
+        - Name: MODEL_NAME
+          Value:
+            Fn::ImportValue: ModelName
+      Tags:
+      - Key: Name
+        Value:
+          Fn::Join:
+          - '-'
+          - - mlops-package-deployment
+            - Fn::ImportValue: ModelName
+  DeployPipeline:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      Name:
+        Fn::Sub: ${AWS::StackName}
+      RoleArn:
+        Fn::GetAtt:
+        - MLOpsDeployRole
+        - Arn
+      ArtifactStore:
+        Type: S3
+        Location:
+          Fn::ImportValue: MLOpsBucket
+      Stages:
+      - Name: Source
+        Actions:
+        - Name: DeploySource
+          ActionTypeId:
+            Category: Source
+            Owner: AWS
+            Version: '1'
+            Provider: CodeCommit
+          OutputArtifacts:
+          - Name: DeploySourceOutput
+          Configuration:
+            BranchName: deploy
+            RepositoryName:
+              Fn::ImportValue: MLOpsRepoName
+            PollForSourceChanges: false
+          RunOrder: 1
+      - Name: QAApproval
+        Actions:
+        - Name: ApproveDeploy
+          ActionTypeId:
+            Category: Approval
+            Owner: AWS
+            Version: '1'
+            Provider: Manual
+          Configuration:
+            CustomData: Approve deployment to QA?
+          RunOrder: 1
+      - Name: DeployQA
+        Actions:
+        - Name: BuildQADeployment
+          InputArtifacts:
+          - Name: DeploySourceOutput
+          OutputArtifacts:
+          - Name: BuildQAOutput
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          Configuration:
+            ProjectName:
+              Ref: BuildDeploymentProject
+            EnvironmentVariables: '[{"name":"STAGE","value":"QA","type":"PLAINTEXT"}]'
+          RunOrder: 1
+        - Name: DeployQAModel
+          InputArtifacts:
+          - Name: BuildQAOutput
+          OutputArtifacts:
+          - Name: DeployQAOutput
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Version: '1'
+            Provider: CloudFormation
+          Configuration:
+            ActionMode: CREATE_UPDATE
+            RoleArn:
+              Fn::GetAtt:
+              - MLOpsDeployRole
+              - Arn
+            Capabilities: CAPABILITY_NAMED_IAM
+            StackName:
+              Fn::Sub: ${AWS::StackName}-qa
+            TemplateConfiguration: BuildQAOutput::QA-config-export.json
+            TemplatePath: BuildQAOutput::deploy-model-QA.yaml
+          RunOrder: 2
+      - Name: PrdApproval
+        Actions:
+        - Name: ApproveProd
+          ActionTypeId:
+            Category: Approval
+            Owner: AWS
+            Version: '1'
+            Provider: Manual
+          Configuration:
+            CustomData: Promote to Production?
+          RunOrder: 1
+      - Name: DeployPrd
+        Actions:
+        - Name: BuildPrdDeployment
+          InputArtifacts:
+          - Name: DeploySourceOutput
+          OutputArtifacts:
+          - Name: BuildPrdOutput
+          ActionTypeId:
+            Category: Build
+            Owner: AWS
+            Version: '1'
+            Provider: CodeBuild
+          Configuration:
+            ProjectName:
+              Ref: BuildDeploymentProject
+            EnvironmentVariables: '[{"name":"STAGE","value":"Prd","type":"PLAINTEXT"}]'
+          RunOrder: 1
+        - Name: DeployPrdModel
+          InputArtifacts:
+          - Name: BuildPrdOutput
+          OutputArtifacts:
+          - Name: DeployPrdOutput
+          ActionTypeId:
+            Category: Deploy
+            Owner: AWS
+            Version: '1'
+            Provider: CloudFormation
+          Configuration:
+            ActionMode: CREATE_UPDATE
+            RoleArn:
+              Fn::GetAtt:
+              - MLOpsDeployRole
+              - Arn
+            Capabilities: CAPABILITY_NAMED_IAM
+            StackName:
+              Fn::Sub: ${AWS::StackName}-prd
+            TemplateConfiguration: BuildPrdOutput::Prd-config-export.json
+            TemplatePath: BuildPrdOutput::deploy-model-Prd.yaml
+          RunOrder: 2
+  MLOpsDeployRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName:
+        Ref: RoleName
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - s3.amazonaws.com
+            - cloudformation.amazonaws.com
+            - events.amazonaws.com
+            - lambda.amazonaws.com
+            - sagemaker.amazonaws.com
+            - codebuild.amazonaws.com
+            - codepipeline.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      Path: /
+      Policies:
+      - PolicyName: MLOpsDeployPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Sid: CodeCommitAccess
+            Effect: Allow
+            Action:
+            - codecommit:GetBranch
+            - codecommit:GetCommit
+            - codecommit:UploadArchive
+            - codecommit:GetUploadArchiveStatus
+            - codecommit:CancelUploadArchive
+            Resource:
+              Fn::Join:
+              - ''
+              - - 'arn:aws:codecommit:*:*:'
+                - Fn::ImportValue: MLOpsRepoName
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: CodeBuildAccess
+            Effect: Allow
+            Action:
+            - codebuild:*
+            Resource: '*'
+          - Sid: GetImage
+            Effect: Allow
+            Action: ecr:*
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: CloudWatchMetrics
+            Effect: Allow
+            Action:
+            - cloudwatch:PutMetricData
+            - cloudwatch:GetMetricData
+            - cloudwatch:GetMetricStatistics
+            - cloudwatch:ListMetrics
+            - cloudwatch:PutMetricAlarm
+            - cloudwatch:DeleteAlarms
+            - cloudwatch:DescribeAlarms
+            Resource: '*'
+          - Sid: CloudWatchLogs
+            Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:DescribeLogStreams
+            - logs:PutLogEvents
+            - logs:GetLogEvents
+            Resource: '*'
+          - Sid: BucketAccess
+            Effect: Allow
+            Action:
+            - s3:*
+            Resource:
+            - arn:aws:s3:::data-*
+            - arn:aws:s3:::data-*/*
+            - arn:aws:s3:::mlops-*
+            - arn:aws:s3:::mlops-*/*
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: CloudWatchEventsAccess
+            Effect: Allow
+            Action:
+            - events:*
+            Resource: '*'
+          - Sid: CloudFormationAccess
+            Effect: Allow
+            Action:
+            - cloudformation:Create*
+            - cloudformation:Delete*
+            - cloudformation:Describe*
+            - cloudformation:Update*
+            - cloudformation:List*
+            - cloudformation:ExecuteChangeSet
+            - cloudformation:GetTemplateSummary
+            Resource:
+            - arn:aws:cloudformation:*:*:stack/*
+            - arn:aws:cloudformation:*:aws:transform/Serverless-2016-10-31
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: CodePipelineAccess
+            Action:
+            - codepipeline:PutJobFailureResult
+            - codepipeline:PutJobSuccessResult
+            - codepipeline:GetPipelineState
+            - codepipeline:PutApprovalResult
+            Effect: Allow
+            Resource: '*'
+          - Sid: MLOpsDeployPassRole
+            Effect: Allow
+            Action:
+            - iam:PassRole
+            Resource:
+            - Fn::Sub: arn:aws:iam::*:role/${RoleName}
+          - Sid: UpdateModelARNParameter
+            Effect: Allow
+            Action:
+            - ssm:PutParameter
+            - ssm:DeleteParameter
+            - ssm:AddTagsToResource
+            - ssm:GetParameter
+            Resource:
+            - arn:aws:ssm:*:*:parameter/abalone/model-package-name
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: SageMakerAccess
+            Effect: Allow
+            Action:
+            - sagemaker:CreateEndpointConfig
+            - sagemaker:CreateEndpoint
+            - sagemaker:CreateModel
+            - sagemaker:DescribeModel
+            - sagemaker:DescribeEndpointConfig
+            - sagemaker:DescribeEndpoint
+            - sagemaker:DeleteEndpoint
+            - sagemaker:DeleteModel
+            - sagemaker:DeleteEndpointConfig
+            - sagemaker:UpdateEndpoint
+            - sagemaker:InvokeEndpoint
+            - sagemaker:UpdateEndpointWeightsAndCapacities
+            - sagemaker:StartMonitoringSchedule
+            - sagemaker:ListMonitoringExecutions
+            - sagemaker:StopMonitoringSchedule
+            - sagemaker:ListMonitoringSchedules
+            - sagemaker:CreateMonitoringSchedule
+            - sagemaker:UpdateMonitoringSchedule
+            - sagemaker:DeleteMonitoringSchedule
+            - sagemaker:DescribeMonitoringSchedule
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: ApplicationAutoScaling
+            Effect: Allow
+            Action:
+            - application-autoscaling:DescribeScalableTargets
+            - application-autoscaling:RegisterScalableTarget
+            - application-autoscaling:DescribeScalableTargets
+            - application-autoscaling:DeregisterScalableTarget
+            - application-autoscaling:PutScalingPolicy
+            - application-autoscaling:DescribeScalingPolicies
+            - application-autoscaling:DescribeScalingActivities
+            - application-autoscaling:DeleteScalingPolicy
+            - application-autoscaling:DeleteScheduledAction
+            Resource: '*'
+            Condition:
+              StringEquals:
+                aws:RequestedRegion:
+                  Fn::Sub: ${AWS::Region}
+          - Sid: AutoscalingServiceLinkedRole
+            Effect: Allow
+            Action:
+            - iam:CreateServiceLinkedRole
+            Resource:
+            - arn:aws:iam::*:role/aws-service-role/sagemaker.application-autoscaling.amazonaws.com/AWSServiceRoleForApplicationAutoScaling_SageMakerEndpoint
+            Condition:
+              StringLike:
+                iam:AWSServiceName: sagemaker.application-autoscaling.amazonaws.com
+Outputs:
+  ExportRoleARN:
+    Description: Deploy Role created
+    Value:
+      Fn::GetAtt:
+      - MLOpsDeployRole
+      - Arn
+    Export:
+      Name: MLOpsDeployRole
+  ModelPackageName:
+    Description: Model package to be deployed
+    Value:
+      Ref: ModelPackageName
+    Export:
+      Name: ModelPackageName

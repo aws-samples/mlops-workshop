@@ -1,0 +1,126 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Create repositories required for the workshop
+Resources:
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: data-${AWS::Region}-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+  MLOpsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName:
+        Fn::Sub: mlops-${AWS::Region}-${AWS::AccountId}
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+        - ServerSideEncryptionByDefault:
+            SSEAlgorithm: AES256
+  MlopsRepository:
+    Type: AWS::CodeCommit::Repository
+    Properties:
+      RepositoryDescription: Repository for the ML models and pipeline code
+      RepositoryName: abalone
+  AbaloneContainerRegistry:
+    Type: AWS::ECR::Repository
+    Properties:
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      RepositoryName: abalone
+  AbaloneLambdaRegistry:
+    Type: AWS::ECR::Repository
+    Properties:
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      RepositoryName: abalone-lambda
+Outputs:
+  DataBucket:
+    Description: Name of data bucket
+    Value:
+      Ref: DataBucket
+    Export:
+      Name: DataBucket
+  MLOpsBucket:
+    Description: Name of mlops bucket
+    Value:
+      Ref: MLOpsBucket
+    Export:
+      Name: MLOpsBucket
+  MLOpsRepoName:
+    Description: Name of mlops codecommit repository
+    Value:
+      Fn::GetAtt:
+      - MlopsRepository
+      - Name
+    Export:
+      Name: MLOpsRepoName
+  MLOpsRepoArn:
+    Description: Arn of mlops codecommit repository
+    Value:
+      Fn::GetAtt:
+      - MlopsRepository
+      - Arn
+    Export:
+      Name: MLOpsRepoArn
+  ContainerRegistryArn:
+    Description: Arn of abalone container registry
+    Value:
+      Fn::GetAtt:
+      - AbaloneContainerRegistry
+      - Arn
+    Export:
+      Name: ContainerRegistryArn
+  ContainerRegistryURI:
+    Description: Uri of Container Registry
+    Value:
+      Fn::GetAtt:
+      - AbaloneContainerRegistry
+      - RepositoryUri
+    Export:
+      Name: ContainerRegistryURI
+  ContainerRegistryName:
+    Description: Name of abalone container registry
+    Value:
+      Ref: AbaloneContainerRegistry
+    Export:
+      Name: ContainerRegistryName
+  AbaloneLambdaRegistryArn:
+    Description: Arn of abalone container registry for lambda images
+    Value:
+      Fn::GetAtt:
+      - AbaloneLambdaRegistry
+      - Arn
+    Export:
+      Name: AbaloneLambdaRegistryArn
+  AbaloneLambdaRegistryURI:
+    Description: Uri of abalone container registry for lambda images
+    Value:
+      Fn::GetAtt:
+      - AbaloneLambdaRegistry
+      - RepositoryUri
+    Export:
+      Name: AbaloneLambdaRegistryURI
+  AbaloneLambdaRegistryName:
+    Description: Name of abalone container registry for lambda images
+    Value:
+      Ref: AbaloneLambdaRegistry
+    Export:
+      Name: AbaloneLambdaRegistryName
