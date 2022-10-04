@@ -18,7 +18,7 @@ def handler(event, context):
     logger.debug("## Event ##")
     logger.debug(event)
     try:
-        file_name = "preprocessing.py"
+        file_name = "etl/preprocessing.py"
         executionId=""
         pipeline_name=os.environ['PIPELINE_NAME']
         model_name = os.environ['MODEL_NAME']
