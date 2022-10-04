@@ -214,7 +214,7 @@ Resources:
                     sam build --build-dir deploy/ \
                               --use-container \
                               --manifest requirements.txt \
-                              --template-file ./model/testSageMakerPipelineEndpoint/sam.yaml \
+                              --template-file tests/system_test/assets/testSageMakerPipelineEndpoint/sam.yaml \
                               --base-dir assets/
                     """
             build:
