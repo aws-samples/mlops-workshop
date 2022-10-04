@@ -287,6 +287,8 @@ Resources:
               Commands:
                 - echo Build started on `date`
                 - echo Logging in to the Amazon Deep Learning Contain Repository ...
+                - cd model
+                - sed -i "s/<Region>/$AWS_DEFAULT_REGION/g" Dockerfile
                 - aws ecr get-login-password --region $AWS_DEFAULT_REGION | docker login --username AWS --password-stdin 763104351884.dkr.ecr.$AWS_DEFAULT_REGION.amazonaws.com
                 - echo Building the Container image...
                 - docker build -t $IMAGE_REPO_NAME:$IMAGE_TAG .
