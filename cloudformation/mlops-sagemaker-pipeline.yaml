@@ -208,13 +208,14 @@ Resources:
               commands:
                 - printenv
                 - echo Updating Packages ...
+                - cd tests/system_test
                 - pip install --upgrade --force-reinstall botocore boto3 awscli sagemaker aws-sam-cli
                 - |
                   sh -c """
                     sam build --build-dir deploy/ \
                               --use-container \
                               --manifest requirements.txt \
-                              --template-file tests/system_test/assets/testSageMakerPipelineEndpoint/sam.yaml \
+                              --template-file assets/testSageMakerPipelineEndpoint/sam.yaml \
                               --base-dir assets/
                     """
             build:
