@@ -44,8 +44,8 @@ def handler(event, context):
                 s3Location = inputArtifacts['location']['s3Location']
                 zip_bytes = s3.get_object(Bucket=s3Location['bucketName'], Key=s3Location['objectKey'])['Body'].read()
                 with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as z:
-                    pipeline_defn = json.loads(z.read(mlops_sm_pipeline_defn).decode('ascii'))
-                    pipeline_params = json.loads(z.read(mlops_sm_pipeline_param).decode('ascii'))
+                    pipeline_defn = json.loads(z.read(os.path.join("sgPipeline", mlops_sm_pipeline_defn)).decode('ascii'))
+                    pipeline_params = json.loads(z.read(os.path.join("model", lops_sm_pipeline_param)).decode('ascii'))
         if pipeline_defn is None:
             raise(Exception("mlops-sm-mlops_sm_pipeline_defn.json not found"))
         if pipeline_params is None:
