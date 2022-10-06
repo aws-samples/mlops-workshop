@@ -39,7 +39,7 @@ def handler(event, context):
                 zip_bytes = s3.get_object(Bucket=s3Location['bucketName'], Key=s3Location['objectKey'])['Body'].read()
                 with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as z:
                    eval_script = z.read(file_name).decode('ascii')
-                   s3_upload_path = executionId + "/input/evaluation/code/" + file_name
+                   s3_upload_path = executionId + "/input/evaluation/code/" + os.path.split(file_name)[-1]
                    s3.put_object(Bucket=output_bucket, Body=eval_script, Key=s3_upload_path)
         cp.put_job_success_result(jobId=jobId)
     except Exception as e:
