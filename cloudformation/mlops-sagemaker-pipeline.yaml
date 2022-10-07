@@ -358,19 +358,19 @@ Resources:
                 RepositoryName: abalone
                 PollForSourceChanges: false
               RunOrder: 1
-            - Name: DataSource
-              ActionTypeId:
-                Category: Source
-                Owner: AWS
-                Version: "1"
-                Provider: S3
-              OutputArtifacts:
-                - Name: DataSourceOutput
-              Configuration:
-                S3Bucket: !ImportValue DataBucket
-                S3ObjectKey: input/raw/abalone.csv
-                PollForSourceChanges: false
-              RunOrder: 1
+#            - Name: DataSource
+#              ActionTypeId:
+#                Category: Source
+#                Owner: AWS
+#                Version: "1"
+#                Provider: S3
+#              OutputArtifacts:
+#                - Name: DataSourceOutput
+#              Configuration:
+#                S3Bucket: !ImportValue DataBucket
+#                S3ObjectKey: input/raw/abalone.csv
+#                PollForSourceChanges: false
+#              RunOrder: 1
             - Name: TestSource
               ActionTypeId:
                 Category: Source
