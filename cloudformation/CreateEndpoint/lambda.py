@@ -48,7 +48,7 @@ def handler(event, context):
                     PipelineExecutionArn=actionDetail['output']['outputVariables']['PipelineExecutionArn']
                 )
                 for pipelineExecutionStep in pipelineExecutionSteps['PipelineExecutionSteps']:
-                    if pipelineExecutionStep['StepName'] == 'Register':
+                    if pipelineExecutionStep['StepName'] == 'Register-RegisterModel':
                         model_arn = pipelineExecutionStep['Metadata']['RegisterModel']['Arn']
                 pipelineExecution = sm.describe_pipeline_execution(
                         PipelineExecutionArn=actionDetail['output']['outputVariables']['PipelineExecutionArn']
