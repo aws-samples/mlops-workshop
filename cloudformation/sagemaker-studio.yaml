@@ -1,0 +1,85 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: SageMaker Studio Stack
+#Parameters:
+#  NetworkStackName:
+#    Type: String
+#    Description: AWS CloudFormation Stack Name for Network Stack
+#  InfraResourcesBucket:
+#    Type: String
+#    Description: Amazon S3 bucket containing environment creation resources
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+  PublicSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.0.0/20
+      VpcId: !Ref VPC
+  PrivateSubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: 10.0.32.0/20
+      VpcId: !Ref VPC
+  SageMakerExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - sagemaker.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Path: /
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSageMakerFullAccess
+        - arn:aws:iam::aws:policy/AWSCodeCommitPowerUser
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+  SageMakerDomain:
+    Type: AWS::SageMaker::Domain
+    Properties:
+      DomainName: NLPWorkshop
+      AuthMode: IAM
+      DefaultUserSettings:
+        ExecutionRole: !GetAtt SageMakerExecutionRole.Arn
+      SubnetIds:
+        - !Ref PrivateSubnet
+      VpcId: !Ref VPC
+  SageMakerUser:
+    Type: AWS::SageMaker::UserProfile
+    Properties:
+      DomainId: !Ref SageMakerDomain
+      UserProfileName: LabUser
+  JupyterApp:
+    Type: AWS::SageMaker::App
+    DependsOn: SageMakerUser
+    Properties:
+      AppName: default
+      AppType: JupyterServer
+      DomainId: !GetAtt SageMakerDomain.DomainId
+      UserProfileName: LabUser
+Outputs:
+#  NetworkStackName:
+#    Description: AWS CloudFormation Stack Name for Network Stack
+#    Value: !Ref AWS::StackName
+#    Export:
+#      Name: NetworkStackName
+  VpcId:
+    Description: VPC for Amazon SageMaker Domain
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${AWS::StackName}-Vpc-Id
+  PrivateSubnetId:
+    Description: Private Subnet ID
+    Value: !Ref PrivateSubnet
+    Export:
+      Name: !Sub ${AWS::StackName}-Private-Subnet-Id
+  PublicSubnetId:
+    Description: Public Subnet ID
+    Value: !Ref PublicSubnet
+    Export:
+      Name: !Sub ${AWS::StackName}-Public-Subnet-Id

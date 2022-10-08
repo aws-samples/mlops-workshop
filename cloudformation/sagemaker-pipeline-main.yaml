@@ -21,3 +21,8 @@ Resources:
     DependsOn: SageMakerPipelineStack
     Properties:
       TemplateURL: "../deploy/mlops-deploy.yaml"
+
+  StudioStack:
+    Type: AWS::CloudFormation::Stack
+    Properties:
+      TemplateURL: "sagemaker-studio.yaml"
