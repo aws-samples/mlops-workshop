@@ -343,7 +343,7 @@ Resources:
                 BranchName: main
 #               RepositoryName: !ImportValue MLOpsRepoName
                 RepositoryName: abalone
-                PollForSourceChanges: false
+                PollForSourceChanges: true
               RunOrder: 1
             - Name: ETLSource
               ActionTypeId:
