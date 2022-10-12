@@ -15,7 +15,7 @@ Resources:
     DependsOn: CommonStack
     Properties:
       TemplateURL: "mlops-sagemaker-pipeline.yaml"
-  
+
   DeployStack:
     Type: AWS::CloudFormation::Stack
     DependsOn: SageMakerPipelineStack

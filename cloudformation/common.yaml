@@ -37,11 +37,43 @@ Resources:
           - ServerSideEncryptionByDefault:
               SSEAlgorithm: AES256
 
+  SourceCodeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "lab-source-code-${AWS::Region}-${AWS::AccountId}"
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  SourceCodeResource:
+    Type: AWS::Serverless::Function
+    Properties:
+      Timeout: 300
+      CodeUri: StageSourceCode/
+      Runtime: python3.9
+      Handler: handler.lambda_handler
+      Policies:
+        - S3FullAccessPolicy:
+            BucketName: !Ref SourceCodeBucket
+
+  LabSourceCode:
+    Type: Custom::S3CustomResource
+    Properties:
+      ServiceToken: !GetAtt SourceCodeResource.Arn
+      Bucket: !Ref SourceCodeBucket
+
   MlopsRepository:
     Type: AWS::CodeCommit::Repository
+    DependsOn: LabSourceCode
     Properties:
       RepositoryDescription: "Repository for the ML models and pipeline code"
       RepositoryName: abalone
+      Code:
+        BranchName: main
+        S3:
+          Bucket: !Ref SourceCodeBucket
+          Key: lab/abalone.zip
 
   AbaloneContainerRegistry:
     Type: AWS::ECR::Repository
