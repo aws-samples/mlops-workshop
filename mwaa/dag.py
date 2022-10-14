@@ -52,7 +52,6 @@ with DAG(
     default_args=default_args,
     description='MlOps tutorial DAG',
     # schedule_interval="*/5 * * * *",
-    #schedule_interval=timedelta(days=1),
     start_date=days_ago(1),
     tags=['example'],
     catchup=False,

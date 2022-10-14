@@ -67,24 +67,6 @@ Resources:
       EncryptionConfiguration:
         EncryptionType: AES256
       RepositoryName: abalone-lambda
-#  AbaloneData:
-#    Type: Custom::S3CustomResource
-#    DependsOn: DataBucket
-#    Properties:
-#      ServiceToken: !GetAtt ResourceStagingFunction.Arn
-#      SourceBucket: !Ref PublicResourcesBucket
-#      TargetBucket: !Ref DataBucket
-#      SourceKey: !Sub "${PublicResourcesPrefix}data/input/raw/abalone.csv"
-#      TargetKey: "input/raw/abalone.csv"
-#  PreprocessingScript:
-#    Type: Custom::S3CustomResource
-#    DependsOn: MLOpsBucket
-#    Properties:
-#      ServiceToken: !GetAtt ResourceStagingFunction.Arn
-#      SourceBucket: !Ref PublicResourcesBucket
-#      TargetBucket: !Ref MLOpsBucket
-#      SourceKey: !Sub "${PublicResourcesPrefix}etl/preprocess.py"
-#      TargetKey: "code/preprocess.py"
 
 Outputs:
   DataBucket:
@@ -137,16 +119,6 @@ Outputs:
     Value: !Ref AbaloneLambdaRegistry
     Export:
       Name: AbaloneLambdaRegistryName
-#  ResourceStagingFunctionArn:
-#    Description: Arn of Lambda for custom resource that stages objects to s3 bucket
-#    Value: !GetAtt ResourceStagingFunction.Arn
-#    Export:
-#      Name: ResourceStagingFunctionArn
-#  ResourceStagingFunctionName:
-#    Description: Name of Lambda for custom resource that stages objects to s3 bucket
-#    Value: !Ref ResourceStagingFunction
-#    Export:
-#      Name: ResourceStagingFunctionName
 
 
 
