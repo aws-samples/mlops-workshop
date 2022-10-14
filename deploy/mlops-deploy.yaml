@@ -121,7 +121,7 @@ Resources:
               OutputArtifacts: 
                 - Name: DeploySourceOutput
               Configuration:
-                BranchName: deploy
+                BranchName: main
                 RepositoryName: !ImportValue MLOpsRepoName
                 PollForSourceChanges: false 
               RunOrder: 1
