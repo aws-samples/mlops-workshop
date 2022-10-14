@@ -29,3 +29,10 @@ Resources:
         DataBucket: !GetAtt CommonStack.Outputs.DataBucket
         ModelSourceRepo: !GetAtt CommonStack.Outputs.MLOpsRepoName
 
+  DeployStack:
+    Type: AWS::Serverless::Application
+    Properties:
+      Location: "../deploy/mlops-deploy.yaml"
+      Parameters:
+        MLOpsBucket: !GetAtt CommonStack.Outputs.MLOpsBucket
+

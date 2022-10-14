@@ -11,6 +11,11 @@ Parameters:
     Description: "Name of role that will have necessary permissions to deploy into QA and Production "
     Default: MLOpsDeploy
 
+  MLOpsBucket:
+    Type: String
+    Description: "Storage for MLOps artifacts"
+    Default: ""
+
 Resources:
   ModelPackageName:
     Type: AWS::SSM::Parameter
@@ -27,7 +32,7 @@ Resources:
         Fn::Join:
           - "-"
           - - "trained-model"
-            - Fn::ImportValue: ModelName
+            - "abalone"
       Description: "Function that will deploy model into  environment"
       Handler: lambda.handler
       MemorySize: 512
@@ -57,7 +62,7 @@ Resources:
         - Arn: !GetAtt TrainedModel.Arn
           Id: "StoreTrainedModel"
       RoleArn: !GetAtt MLOpsDeployRole.Arn
-  
+
   EventBridgeLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -69,11 +74,11 @@ Resources:
   BuildDeploymentProject:
     Type: AWS::CodeBuild::Project
     Properties:
-      Name: 
+      Name:
         Fn::Join:
           - "-"
-          - - "mlops-package-deployment" 
-            - Fn::ImportValue: ModelName
+          - - "mlops-package-deployment"
+            - "abalone"
       Description: "Bundle the required resource properties required for deployment."
       ServiceRole: !GetAtt MLOpsDeployRole.Arn
       Artifacts:
@@ -83,23 +88,23 @@ Resources:
         BuildSpec: buildspec.yml
       Environment:
         Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL 
+        ComputeType: BUILD_GENERAL1_SMALL
         Image: aws/codebuild/standard:4.0
         EnvironmentVariables:
           - Name: PIPELINE_NAME
             Value: !Sub ${AWS::StackName}
           - Name: MODEL_PACKAGE_NAME
-            Value: !Ref ModelPackageName 
+            Value: !Ref ModelPackageName
           - Name: MODEL_NAME
-            Value: !ImportValue ModelName
+            Value: abalone
       Tags:
         - Key: Name
-          Value: 
+          Value:
             Fn::Join:
               - "-"
-              - - "mlops-package-deployment" 
-                - Fn::ImportValue: ModelName
-  
+              - - "mlops-package-deployment"
+                - "abalone"
+
       
   DeployPipeline:
     Type: AWS::CodePipeline::Pipeline
@@ -108,22 +113,22 @@ Resources:
       RoleArn: !GetAtt MLOpsDeployRole.Arn
       ArtifactStore:
           Type: S3
-          Location: !ImportValue MLOpsBucket
+          Location: !Ref MLOpsBucket
       Stages:
         - Name: Source
           Actions:
             - Name: DeploySource
-              ActionTypeId: 
+              ActionTypeId:
                 Category: Source
                 Owner: AWS
                 Version: "1"
                 Provider: CodeCommit
-              OutputArtifacts: 
+              OutputArtifacts:
                 - Name: DeploySourceOutput
               Configuration:
                 BranchName: deploy
-                RepositoryName: !ImportValue MLOpsRepoName
-                PollForSourceChanges: false 
+                RepositoryName: "abalone"
+                PollForSourceChanges: false
               RunOrder: 1
         - Name: QAApproval
           Actions:
@@ -215,7 +220,7 @@ Resources:
                 TemplateConfiguration: BuildPrdOutput::Prd-config-export.json
                 TemplatePath: BuildPrdOutput::deploy-model-Prd.yaml
               RunOrder: 2
-    
+
   MLOpsDeployRole:
     Type: AWS::IAM::Role
     Properties:
@@ -252,8 +257,8 @@ Resources:
                 Resource:
                   Fn::Join:
                     - ""
-                    - - "arn:aws:codecommit:*:*:" 
-                      - Fn::ImportValue: MLOpsRepoName
+                    - - "arn:aws:codecommit:*:*:"
+                      - "abalone"
                 Condition:
                   StringEquals:
                     aws:RequestedRegion: !Sub ${AWS::Region}
@@ -297,7 +302,7 @@ Resources:
                   - "arn:aws:s3:::data-*"
                   - "arn:aws:s3:::data-*/*"
                   - "arn:aws:s3:::mlops-*"
-                  - "arn:aws:s3:::mlops-*/*"                
+                  - "arn:aws:s3:::mlops-*/*"
                 Condition:
                   StringEquals:
                     aws:RequestedRegion: !Sub ${AWS::Region}
@@ -338,7 +343,7 @@ Resources:
                   - !Sub "arn:aws:iam::*:role/${RoleName}"
               - Sid: UpdateModelARNParameter
                 Effect: Allow
-                Action: 
+                Action:
                     - "ssm:PutParameter"
                     - "ssm:DeleteParameter"
                     - "ssm:AddTagsToResource"
@@ -414,4 +419,3 @@ Outputs:
     Value: !Ref ModelPackageName
     Export:
       Name: ModelPackageName
-      
