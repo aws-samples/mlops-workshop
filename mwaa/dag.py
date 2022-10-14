@@ -40,7 +40,7 @@ model_quality_rmse_threshold = 3.0
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
-    'email': ['famestad@amazon.com'],
+    'email': ['user@example.com'],
     'email_on_failure': False,
     'email_on_retry': False,
     'retries': 1,
