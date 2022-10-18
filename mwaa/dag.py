@@ -58,7 +58,7 @@ with DAG(
         should_skip_etl = kwargs['dag_run'].conf.get('skip_etl') == "true"
         print(f"Skip ETL? {should_skip_etl}")
         if should_skip_etl:
-            return "get_last_dataset_id"
+            return "get_model_digest"
         return "assign_dataset_id"
     
     check_skip_config = BranchPythonOperator(
@@ -113,20 +113,6 @@ with DAG(
             "dataset_id": str(assign_dataset_id.output)
         }
     )
-        
-    def get_last_dataset_id(**kwargs):
-        dataset_id = Variable.get(
-            key="last_dataset_id",
-            deserialize_json=True,
-            default_var="NONE")
-        return dataset_id
-        
-    get_last_dataset_id = PythonOperator(
-        task_id="get_last_dataset_id",
-        python_callable=get_last_dataset_id,
-        op_kwargs={
-            "last_dataset_id": str(etl.output)
-        })
     
     def get_model_digest():
         ecr = boto3.client('ecr')
@@ -419,11 +405,10 @@ with DAG(
         }
     )
     
-    check_skip_config.set_downstream([get_last_dataset_id, assign_dataset_id])
+    check_skip_config.set_downstream([get_model_digest, assign_dataset_id])
     assign_dataset_id.set_downstream(etl)
     etl.set_downstream(store_dataset_id)
     store_dataset_id.set_downstream(get_model_digest)
-    get_last_dataset_id.set_downstream(get_model_digest)
     get_model_digest.set_downstream(train_op)
     train_op.set_downstream(evaluate_model)
     evaluate_model.set_downstream(check_evaluation_metrics)
