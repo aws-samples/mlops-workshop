@@ -2,10 +2,7 @@ from datetime import timedelta
 
 from airflow import DAG
 
-# Operators; we need this to operate!
 from airflow.operators.python import PythonOperator, BranchPythonOperator, ShortCircuitOperator
-
-
 
 from airflow.utils.dates import days_ago
 from airflow.models import Variable
@@ -51,7 +48,6 @@ with DAG(
     'mlops',
     default_args=default_args,
     description='MlOps tutorial DAG',
-    # schedule_interval="*/5 * * * *",
     start_date=days_ago(1),
     tags=['example'],
     catchup=False,
@@ -423,7 +419,7 @@ with DAG(
         }
     )
     
-    check_skip_config >> [get_last_dataset_id, assign_dataset_id]
+    check_skip_config.set_downstream([get_last_dataset_id, assign_dataset_id])
     assign_dataset_id.set_downstream(etl)
     etl.set_downstream(store_dataset_id)
     store_dataset_id.set_downstream(get_model_digest)
