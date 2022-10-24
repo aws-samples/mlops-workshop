@@ -379,6 +379,8 @@ Resources:
         jobenv.output_bucket_name: !Ref MLOpsBucket
         jobenv.mlops_role: !Ref ExecutionRoleName
         jobenv.model_name: !Ref ModelName
+        jobenv.aws_account_id: !Ref AWS::AccountId
+        jobenv.aws_region: !Ref AWS::Region
         core.enable_xcom_pickling: True # Required for Sagemaker training
         core.dags_are_paused_at_creation: False
       NetworkConfiguration:
