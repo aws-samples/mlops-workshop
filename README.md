@@ -23,11 +23,11 @@ MLOps stands for Machine Learning Operations. MLOps focuses on the intersection 
 Why do we need MLOps?
 Machine learning operations are key to effectively transitioning from an experimentation phase, to a production phase. The practice provides you the ability to create a repeatable mechanism to build, train, deploy, and manage machine learning models. Adopting MLOps practices gives you faster time-to-market for ML projects, by delivering the following benefits.
 
-Productivity: Providing self-service environments with access to curated data sets, lets data engineers, and data scientists waste less time with missing or invalid data.
-Repeatability: Automating all the steps in the ML ML model building, and ML model deployments, are automated without becomming a bottleneck down the road.
-Reliability: Incorporating CI/CD practices allows ML models to be deployed quickly, while enuring quality, and consistency.
-Auditability: Provide end-to-end traceability. This includes additional considerations, that are unique to machine learning, such as versioning all inputs and outputs, from data science experiments, to source data, to trained model. This means that we can demonstrate exactly how the ML model was built, and where it was deployed.
-Data and model quality: MLOps lets us enforce policies that guard against ML model bias, and track changes to the data's statistical properties, and model quality over time.
+- **Productivity:** Providing self-service environments with access to curated data sets, lets data engineers, and data scientists waste less time with missing or invalid data.  
+- **Repeatability:** Automating all the steps in the ML ML model building, and ML model deployments, are automated without becomming a bottleneck down the road.  
+- **Reliability:** Incorporating CI/CD practices allows ML models to be deployed quickly, while enuring quality, and consistency.  
+- **Auditability:** Provide end-to-end traceability. This includes additional considerations, that are unique to machine learning, such as versioning all inputs and outputs, from data science experiments, to source data, to trained model. This means that we can demonstrate exactly how the ML model was built, and where it was deployed.  
+- **Data and model quality:** MLOps lets us enforce policies that guard against ML model bias, and track changes to the data's statistical properties, and model quality over time.
 
 ### Getting Started
 By following along with the **[Operationalizing the Machine Learning Pipeline](http://operational-machine-learning-pipeline.workshop.aws/)** AWS workshop, the branches in this repository represent different approaches you can take to MLOps, You can create a workflow centered around the Data Scientist or ML Engineer with the `sagemaker-pipeline` branch. Alternativley, should you wish to explore a code centric approach, the `dev-tools` branch show how the AWS Developer Tools can be used to manage CICD processes around the source code, as well as the orchestration of data ETL, and other model building processes.
