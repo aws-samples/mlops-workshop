@@ -1,6 +1,6 @@
 {
   "Parameters": {
-    "PipelineName": "sagemaker-pipeline-abalone",
+    "PipelineName": "MLOps-SageMaker-Pipeline",
     "MaxParallelExecutionSteps": 99,
     "ProcessingInstanceCount": "1",
     "TrainingInstanceCount": "1",
